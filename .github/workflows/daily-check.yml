@@ -1,0 +1,37 @@
+name: Daily Repo Check
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  validate-extension:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Validate manifest and required assets
+        shell: bash
+        run: |
+          test -f manifest.json
+          test -f assets/icon16.png
+          test -f assets/icon32.png
+          test -f assets/icon48.png
+          test -f assets/icon128.png
+          node -e "const fs=require('fs'); const manifest=JSON.parse(fs.readFileSync('manifest.json','utf8')); if (manifest.manifest_version !== 3) throw new Error('Manifest must use version 3'); if (!manifest.background?.service_worker) throw new Error('Missing background service worker'); if (!manifest.action?.default_popup) throw new Error('Missing default popup'); console.log('Manifest validation passed');"
+
+      - name: Check JavaScript syntax
+        shell: bash
+        run: |
+          node --check background.js
+          node --check popup.js
+          node --check selection.js
+          node --check editor.js
