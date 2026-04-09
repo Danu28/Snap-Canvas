@@ -7,6 +7,7 @@ const sizePicker = document.querySelector("#sizePicker");
 const toolButtons = [...document.querySelectorAll(".tool-button")];
 const undoButton = document.querySelector("#undoButton");
 const clearButton = document.querySelector("#clearButton");
+const copyButton = document.querySelector("#copyButton");
 const downloadButton = document.querySelector("#downloadButton");
 
 let captureImage = null;
@@ -53,6 +54,7 @@ function bindEvents() {
   window.addEventListener("pointerup", onPointerUp);
   undoButton.addEventListener("click", undo);
   clearButton.addEventListener("click", resetCanvas);
+  copyButton.addEventListener("click", copyImage);
   downloadButton.addEventListener("click", downloadImage);
 }
 
@@ -194,6 +196,28 @@ function downloadImage() {
   link.download = `pagesnap-${Date.now()}.png`;
   link.click();
   setStatus("PNG download started.");
+}
+
+async function copyImage() {
+  setStatus("Copying image to clipboard...");
+
+  if (!navigator.clipboard || typeof ClipboardItem === "undefined") {
+    setStatus("Clipboard API not supported in this browser. Use download instead.");
+    return;
+  }
+
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+  if (!blob) {
+    setStatus("Unable to generate clipboard image. Use download instead.");
+    return;
+  }
+
+  try {
+    await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+    setStatus("Image copied to clipboard.");
+  } catch (error) {
+    setStatus(error?.message || "Failed to copy image. Use download instead.");
+  }
 }
 
 function commitHistory() {
