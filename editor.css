@@ -1,0 +1,159 @@
+:root {
+  --bg: #f1eadf;
+  --panel: #fffaf2;
+  --panel-strong: #fff;
+  --text: #181511;
+  --muted: #6b6257;
+  --border: rgba(42, 31, 16, 0.12);
+  --accent: #d85823;
+  --accent-strong: #aa3910;
+  --shadow: 0 24px 44px rgba(55, 33, 12, 0.14);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background:
+    radial-gradient(circle at top left, rgba(216, 88, 35, 0.18), transparent 30%),
+    linear-gradient(180deg, #efe7db 0%, #efe4d4 100%);
+  color: var(--text);
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.toolbar {
+  display: grid;
+  align-content: start;
+  gap: 18px;
+  padding: 28px 22px;
+  background: rgba(255, 250, 242, 0.88);
+  border-right: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  position: sticky;
+  top: 0;
+  height: 100vh;
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 11px;
+  color: var(--accent-strong);
+}
+
+.brand h1 {
+  margin: 0;
+  font-size: 30px;
+}
+
+.tool-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.tool-button,
+.actions button {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px 14px;
+  font: inherit;
+  cursor: pointer;
+  background: var(--panel-strong);
+  color: var(--text);
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.tool-button:hover,
+.actions button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(216, 88, 35, 0.44);
+  box-shadow: 0 10px 18px rgba(55, 33, 12, 0.12);
+}
+
+.tool-button.is-active {
+  background: linear-gradient(135deg, #fce4cc, #fff8f0);
+  border-color: rgba(216, 88, 35, 0.5);
+}
+
+.field {
+  display: grid;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.field span {
+  color: var(--muted);
+}
+
+.field input {
+  width: 100%;
+}
+
+.actions {
+  display: grid;
+  gap: 10px;
+}
+
+.primary {
+  background: linear-gradient(135deg, #da5a2a, #c34619);
+  color: #fff;
+}
+
+.secondary {
+  background: var(--panel);
+}
+
+.status {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.canvas-area {
+  padding: 28px;
+  overflow: auto;
+}
+
+.canvas-wrap {
+  display: inline-block;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: var(--shadow);
+}
+
+#editorCanvas {
+  display: block;
+  max-width: 100%;
+  cursor: crosshair;
+}
+
+@media (max-width: 960px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .toolbar {
+    position: static;
+    height: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .canvas-area {
+    padding: 18px;
+  }
+}

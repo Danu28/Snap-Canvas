@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PageSnap Annotator</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main class="popup">
+    <div class="hero">
+      <p class="eyebrow">Screenshot Capture</p>
+      <h1>PageSnap</h1>
+      <p class="subtitle">Capture the current tab, then mark it up with fast annotation tools.</p>
+    </div>
+
+    <section class="actions">
+      <button class="capture-button" data-mode="full">
+        <span class="label">Full page</span>
+        <span class="hint">Scroll and stitch the whole document</span>
+      </button>
+      <button class="capture-button" data-mode="visible">
+        <span class="label">Visible area</span>
+        <span class="hint">Grab exactly what is on screen now</span>
+      </button>
+      <button class="capture-button" data-mode="selected">
+        <span class="label">Selected area</span>
+        <span class="hint">Pick a region before capture</span>
+      </button>
+    </section>
+
+    <p id="status" class="status" role="status" aria-live="polite"></p>
+  </main>
+
+  <script src="popup.js" type="module"></script>
+</body>
+</html>

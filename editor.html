@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PageSnap Editor</title>
+  <link rel="stylesheet" href="editor.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="toolbar">
+      <div class="brand">
+        <p class="eyebrow">Annotation Studio</p>
+        <h1>PageSnap Editor</h1>
+      </div>
+
+      <div class="tool-grid" role="toolbar" aria-label="Annotation tools">
+        <button class="tool-button is-active" data-tool="rectangle">Rectangle</button>
+        <button class="tool-button" data-tool="arrow">Arrow</button>
+        <button class="tool-button" data-tool="highlight">Highlight</button>
+        <button class="tool-button" data-tool="text">Text</button>
+      </div>
+
+      <label class="field">
+        <span>Color</span>
+        <input id="colorPicker" type="color" value="#da5a2a">
+      </label>
+
+      <label class="field">
+        <span>Stroke</span>
+        <input id="sizePicker" type="range" min="2" max="14" step="1" value="4">
+      </label>
+
+      <div class="actions">
+        <button id="undoButton" class="secondary">Undo</button>
+        <button id="clearButton" class="secondary">Clear</button>
+        <button id="downloadButton" class="primary">Download PNG</button>
+      </div>
+
+      <p id="editorStatus" class="status">Loading capture...</p>
+    </aside>
+
+    <main class="canvas-area">
+      <div class="canvas-wrap">
+        <canvas id="editorCanvas"></canvas>
+      </div>
+    </main>
+  </div>
+
+  <script src="editor.js" type="module"></script>
+</body>
+</html>
