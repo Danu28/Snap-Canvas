@@ -24,6 +24,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return false;
 });
 
+chrome.commands.onCommand.addListener(async (command) => {
+  const mode = { "full-page": "full", "visible-area": "visible", "selected-area": "selected" }[command];
+  if (!mode) return;
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id || !tab?.windowId) return;
+  handleCapture({ mode, tabId: tab.id, windowId: tab.windowId }).catch(console.error);
+});
+
 async function handleCapture({ mode, tabId, windowId }) {
   if (mode === "visible") {
     const dataUrl = await captureTabWithoutScrollbars(tabId, windowId);

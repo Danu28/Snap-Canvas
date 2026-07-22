@@ -19,6 +19,26 @@
     "default_title": "SnapCanvas",
     "default_popup": "popup.html"
   },
+  "commands": {
+    "full-page": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+1"
+      },
+      "description": "Capture full page"
+    },
+    "visible-area": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+2"
+      },
+      "description": "Capture visible area"
+    },
+    "selected-area": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+3"
+      },
+      "description": "Capture selected area"
+    }
+  },
   "icons": {
     "16": "assets/icon16.png",
     "32": "assets/icon32.png",
