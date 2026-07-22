@@ -160,7 +160,7 @@ function buildSteps(total, viewport) {
   }
 
   values.push(total - viewport);
-  return [...new Set(values)];
+  return values;
 }
 
 async function captureVisibleTabThrottled(windowId) {
@@ -189,11 +189,6 @@ async function captureTabWithoutScrollbars(tabId, windowId) {
   await chrome.scripting.executeScript({
     target: { tabId },
     func: () => {
-      const existing = document.getElementById("pagesnap-scrollbar-style");
-      if (existing) {
-        return;
-      }
-
       const style = document.createElement("style");
       style.id = "pagesnap-scrollbar-style";
       style.textContent = `

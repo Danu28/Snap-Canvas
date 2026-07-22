@@ -222,6 +222,9 @@ async function copyImage() {
 
 function commitHistory() {
   historyStack.push(context.getImageData(0, 0, canvas.width, canvas.height));
+  if (historyStack.length > 50) {
+    historyStack.shift();
+  }
 }
 
 function setStatus(message) {
