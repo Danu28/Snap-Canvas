@@ -105,10 +105,6 @@ if (!window.__pagesnapSelectionLoaded) {
     const rect = buildRect(startX, startY, event.clientX, event.clientY);
     cleanup();
 
-    if (rect.width < 2 || rect.height < 2) {
-      return;
-    }
-
     try {
       await waitForOverlayToDisappear();
       const response = await chrome.runtime.sendMessage({
@@ -163,10 +159,6 @@ if (!window.__pagesnapSelectionLoaded) {
   }
 
   function waitForOverlayToDisappear() {
-    return new Promise((resolve) => {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(resolve);
-      });
-    });
+    return new Promise((resolve) => requestAnimationFrame(resolve));
   }
 }

@@ -11,7 +11,6 @@ const copyButton = document.querySelector("#copyButton");
 const downloadButton = document.querySelector("#downloadButton");
 
 let captureImage = null;
-let baseState = null;
 let currentTool = "rectangle";
 let drawing = false;
 let startPoint = null;
@@ -34,7 +33,6 @@ async function initialize() {
   canvas.width = captureImage.width;
   canvas.height = captureImage.height;
   context.drawImage(captureImage, 0, 0);
-  baseState = context.getImageData(0, 0, canvas.width, canvas.height);
   historyStack = [context.getImageData(0, 0, canvas.width, canvas.height)];
   bindEvents();
   setStatus(`Ready to annotate your ${capture.mode} capture.`);
@@ -181,12 +179,9 @@ function undo() {
 }
 
 function resetCanvas() {
-  if (!baseState) {
-    return;
-  }
-
-  historyStack = [baseState];
-  context.putImageData(baseState, 0, 0);
+  if (historyStack.length === 0) return;
+  historyStack = [historyStack[0]];
+  context.putImageData(historyStack[0], 0, 0);
   setStatus("Annotations cleared.");
 }
 

@@ -85,6 +85,14 @@ async function captureFullPage(tabId, windowId) {
       const doc = document.documentElement;
       const body = document.body;
 
+      document.querySelectorAll("*").forEach((node) => {
+        const style = window.getComputedStyle(node);
+        if ((style.position === "fixed" || style.position === "sticky") && !node.dataset.pagesnapHidden) {
+          node.dataset.pagesnapHidden = node.style.visibility || "__EMPTY__";
+          node.style.visibility = "hidden";
+        }
+      });
+
       return {
         fullWidth: Math.max(doc.scrollWidth, body ? body.scrollWidth : 0, doc.clientWidth),
         fullHeight: Math.max(doc.scrollHeight, body ? body.scrollHeight : 0, doc.clientHeight),
@@ -93,19 +101,6 @@ async function captureFullPage(tabId, windowId) {
         originalX: window.scrollX,
         originalY: window.scrollY
       };
-    }
-  });
-
-  await chrome.scripting.executeScript({
-    target: { tabId },
-    func: () => {
-      document.querySelectorAll("*").forEach((node) => {
-        const style = window.getComputedStyle(node);
-        if ((style.position === "fixed" || style.position === "sticky") && !node.dataset.pagesnapHidden) {
-          node.dataset.pagesnapHidden = node.style.visibility || "__EMPTY__";
-          node.style.visibility = "hidden";
-        }
-      });
     }
   });
 
