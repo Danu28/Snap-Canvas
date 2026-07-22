@@ -240,29 +240,31 @@ async function stitchTiles(metrics, tiles) {
     }))
   );
 
-  const scale = images[0].bitmap.width / metrics.viewportWidth;
-  const canvas = new OffscreenCanvas(
-    Math.round(metrics.fullWidth * scale),
-    Math.round(metrics.fullHeight * scale)
-  );
+  const scaleX = images[0].bitmap.width / metrics.viewportWidth;
+  const scaleY = images[0].bitmap.height / metrics.viewportHeight;
+  const canvasWidth = Math.max(1, Math.round(metrics.fullWidth * scaleX));
+  const canvasHeight = Math.max(1, Math.round(metrics.fullHeight * scaleY));
+  const canvas = new OffscreenCanvas(canvasWidth, canvasHeight);
   const context = canvas.getContext("2d");
+  context.imageSmoothingEnabled = false;
 
   for (const image of images) {
-    const remainingWidth = metrics.fullWidth - image.x;
-    const remainingHeight = metrics.fullHeight - image.y;
-    const drawWidth = Math.min(metrics.viewportWidth, remainingWidth);
-    const drawHeight = Math.min(metrics.viewportHeight, remainingHeight);
+    const destX = Math.round(image.x * scaleX);
+    const destY = Math.round(image.y * scaleY);
+    const srcW = Math.min(image.bitmap.width, canvasWidth - destX);
+    const srcH = Math.min(image.bitmap.height, canvasHeight - destY);
+    if (srcW < 1 || srcH < 1) continue;
 
     context.drawImage(
       image.bitmap,
       0,
       0,
-      Math.round(drawWidth * scale),
-      Math.round(drawHeight * scale),
-      Math.round(image.x * scale),
-      Math.round(image.y * scale),
-      Math.round(drawWidth * scale),
-      Math.round(drawHeight * scale)
+      srcW,
+      srcH,
+      destX,
+      destY,
+      srcW,
+      srcH
     );
   }
 
@@ -274,22 +276,15 @@ async function cropSelectedArea(dataUrl, rect) {
   const bitmap = await createImageBitmap(await (await fetch(dataUrl)).blob());
   const scaleX = bitmap.width / rect.viewportWidth;
   const scaleY = bitmap.height / rect.viewportHeight;
-  const width = Math.max(1, Math.round(rect.width * scaleX));
-  const height = Math.max(1, Math.round(rect.height * scaleY));
+  const sx = Math.max(0, Math.min(bitmap.width - 1, Math.round(rect.left * scaleX)));
+  const sy = Math.max(0, Math.min(bitmap.height - 1, Math.round(rect.top * scaleY)));
+  const width = Math.max(1, Math.min(bitmap.width - sx, Math.round(rect.width * scaleX)));
+  const height = Math.max(1, Math.min(bitmap.height - sy, Math.round(rect.height * scaleY)));
   const canvas = new OffscreenCanvas(width, height);
   const context = canvas.getContext("2d");
+  context.imageSmoothingEnabled = false;
 
-  context.drawImage(
-    bitmap,
-    Math.round(rect.left * scaleX),
-    Math.round(rect.top * scaleY),
-    width,
-    height,
-    0,
-    0,
-    width,
-    height
-  );
+  context.drawImage(bitmap, sx, sy, width, height, 0, 0, width, height);
 
   const blob = await canvas.convertToBlob({ type: "image/png" });
   return blobToDataUrl(blob);

@@ -4,7 +4,7 @@ const FONT_SIZE = 22;
 const FONT = `700 ${FONT_SIZE}px Georgia, serif`;
 
 const canvas = document.querySelector("#editorCanvas");
-const context = canvas.getContext("2d");
+const context = canvas.getContext("2d", { willReadFrequently: true });
 const statusElement = document.querySelector("#editorStatus");
 const toolButtons = [...document.querySelectorAll(".tool-button")];
 const colorSwatches = [...document.querySelectorAll(".color-swatch")];
@@ -14,7 +14,7 @@ const downloadButton = document.querySelector("#downloadButton");
 
 let captureImage = null;
 let currentTool = "rectangle";
-let activeColor = "#e53935";
+let activeColor = "#43a047";
 let annotations = [];
 let historyStack = [[]];
 let drawing = false;
@@ -61,7 +61,7 @@ function bindEvents() {
     button.addEventListener("click", () => {
       activeColor = button.dataset.color;
       colorSwatches.forEach((swatch) => swatch.classList.toggle("is-active", swatch === button));
-      setStatus(activeColor === "#e53935" ? "Color: red." : "Color: green.");
+      setStatus(`Color: ${(button.title || activeColor).toLowerCase()}.`);
     });
   });
 
@@ -200,8 +200,9 @@ function hitTestText(point) {
 }
 
 function redraw() {
+  context.imageSmoothingEnabled = false;
   context.clearRect(0, 0, canvas.width, canvas.height);
-  context.drawImage(captureImage, 0, 0);
+  context.drawImage(captureImage, 0, 0, canvas.width, canvas.height);
   for (const a of annotations) {
     drawAnnotation(a);
   }
