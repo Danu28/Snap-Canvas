@@ -1,6 +1,7 @@
 const CAPTURE_STORAGE_KEY = "latestCapture";
 const SELECTION_MESSAGE_TIMEOUT = 300;
 const CAPTURE_THROTTLE_MS = 600;
+const SCROLL_SETTLE_MS = 200;
 
 let lastCaptureAt = 0;
 
@@ -87,36 +88,41 @@ async function handleSelectedCapture({ rect }, sender) {
 }
 
 async function captureFullPage(tabId, windowId) {
-  const [{ result: metrics }] = await chrome.scripting.executeScript({
-    target: { tabId },
-    func: () => {
-      const doc = document.documentElement;
-      const body = document.body;
+  await injectScrollbarHide(tabId);
+  await waitForPaint(tabId);
 
-      document.querySelectorAll("*").forEach((node) => {
-        const style = window.getComputedStyle(node);
-        if ((style.position === "fixed" || style.position === "sticky") && !node.dataset.pagesnapHidden) {
-          node.dataset.pagesnapHidden = node.style.visibility || "__EMPTY__";
-          node.style.visibility = "hidden";
-        }
-      });
-
-      return {
-        fullWidth: Math.max(doc.scrollWidth, body ? body.scrollWidth : 0, doc.clientWidth),
-        fullHeight: Math.max(doc.scrollHeight, body ? body.scrollHeight : 0, doc.clientHeight),
-        viewportWidth: window.innerWidth,
-        viewportHeight: window.innerHeight,
-        originalX: window.scrollX,
-        originalY: window.scrollY
-      };
-    }
-  });
-
-  const xSteps = buildSteps(metrics.fullWidth, metrics.viewportWidth);
-  const ySteps = buildSteps(metrics.fullHeight, metrics.viewportHeight);
-  const tiles = [];
-
+  let metrics;
   try {
+    const [{ result }] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const doc = document.documentElement;
+        const body = document.body;
+
+        document.querySelectorAll("*").forEach((node) => {
+          const style = window.getComputedStyle(node);
+          if ((style.position === "fixed" || style.position === "sticky") && !node.dataset.pagesnapHidden) {
+            node.dataset.pagesnapHidden = node.style.visibility || "__EMPTY__";
+            node.style.visibility = "hidden";
+          }
+        });
+
+        return {
+          fullWidth: Math.max(doc.scrollWidth, body ? body.scrollWidth : 0, doc.clientWidth),
+          fullHeight: Math.max(doc.scrollHeight, body ? body.scrollHeight : 0, doc.clientHeight),
+          viewportWidth: window.innerWidth,
+          viewportHeight: window.innerHeight,
+          originalX: window.scrollX,
+          originalY: window.scrollY
+        };
+      }
+    });
+    metrics = result;
+
+    const xSteps = buildSteps(metrics.fullWidth, metrics.viewportWidth);
+    const ySteps = buildSteps(metrics.fullHeight, metrics.viewportHeight);
+    const tiles = [];
+
     for (const y of ySteps) {
       for (const x of xSteps) {
         await chrome.scripting.executeScript({
@@ -125,11 +131,14 @@ async function captureFullPage(tabId, windowId) {
           args: [x, y]
         });
 
-        await delay(180);
+        await delay(SCROLL_SETTLE_MS);
+        await waitForPaint(tabId);
         const dataUrl = await captureVisibleTabThrottled(windowId);
         tiles.push({ x, y, dataUrl });
       }
     }
+
+    return stitchTiles(metrics, tiles);
   } finally {
     await chrome.scripting.executeScript({
       target: { tabId },
@@ -142,11 +151,10 @@ async function captureFullPage(tabId, windowId) {
 
         window.scrollTo(scrollX, scrollY);
       },
-      args: [metrics.originalX, metrics.originalY]
+      args: [metrics?.originalX ?? 0, metrics?.originalY ?? 0]
     });
+    await removeScrollbarHide(tabId);
   }
-
-  return stitchTiles(metrics, tiles);
 }
 
 function buildSteps(total, viewport) {
@@ -188,10 +196,11 @@ async function captureVisibleTabThrottled(windowId) {
   }
 }
 
-async function captureTabWithoutScrollbars(tabId, windowId) {
+async function injectScrollbarHide(tabId) {
   await chrome.scripting.executeScript({
     target: { tabId },
     func: () => {
+      if (document.getElementById("pagesnap-scrollbar-style")) return;
       const style = document.createElement("style");
       style.id = "pagesnap-scrollbar-style";
       style.textContent = `
@@ -209,26 +218,45 @@ async function captureTabWithoutScrollbars(tabId, windowId) {
       document.documentElement.appendChild(style);
     }
   });
+}
+
+async function removeScrollbarHide(tabId) {
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => {
+      document.getElementById("pagesnap-scrollbar-style")?.remove();
+    }
+  });
+}
+
+async function waitForPaint(tabId) {
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () =>
+      new Promise((resolve) => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(resolve);
+        });
+      })
+  });
+}
+
+async function decodeBitmap(dataUrl) {
+  const blob = await (await fetch(dataUrl)).blob();
+  return createImageBitmap(blob, {
+    colorSpaceConversion: "none",
+    premultiplyAlpha: "none"
+  });
+}
+
+async function captureTabWithoutScrollbars(tabId, windowId) {
+  await injectScrollbarHide(tabId);
 
   try {
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      func: () =>
-        new Promise((resolve) => {
-          requestAnimationFrame(() => {
-            requestAnimationFrame(resolve);
-          });
-        })
-    });
-
+    await waitForPaint(tabId);
     return await captureVisibleTabThrottled(windowId);
   } finally {
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      func: () => {
-        document.getElementById("pagesnap-scrollbar-style")?.remove();
-      }
-    });
+    await removeScrollbarHide(tabId);
   }
 }
 
@@ -236,7 +264,7 @@ async function stitchTiles(metrics, tiles) {
   const images = await Promise.all(
     tiles.map(async (tile) => ({
       ...tile,
-      bitmap: await createImageBitmap(await (await fetch(tile.dataUrl)).blob())
+      bitmap: await decodeBitmap(tile.dataUrl)
     }))
   );
 
@@ -245,12 +273,12 @@ async function stitchTiles(metrics, tiles) {
   const canvasWidth = Math.max(1, Math.round(metrics.fullWidth * scaleX));
   const canvasHeight = Math.max(1, Math.round(metrics.fullHeight * scaleY));
   const canvas = new OffscreenCanvas(canvasWidth, canvasHeight);
-  const context = canvas.getContext("2d");
+  const context = canvas.getContext("2d", { alpha: false });
   context.imageSmoothingEnabled = false;
 
   for (const image of images) {
-    const destX = Math.round(image.x * scaleX);
-    const destY = Math.round(image.y * scaleY);
+    const destX = Math.floor(image.x * scaleX);
+    const destY = Math.floor(image.y * scaleY);
     const srcW = Math.min(image.bitmap.width, canvasWidth - destX);
     const srcH = Math.min(image.bitmap.height, canvasHeight - destY);
     if (srcW < 1 || srcH < 1) continue;
@@ -273,15 +301,17 @@ async function stitchTiles(metrics, tiles) {
 }
 
 async function cropSelectedArea(dataUrl, rect) {
-  const bitmap = await createImageBitmap(await (await fetch(dataUrl)).blob());
+  const bitmap = await decodeBitmap(dataUrl);
   const scaleX = bitmap.width / rect.viewportWidth;
   const scaleY = bitmap.height / rect.viewportHeight;
-  const sx = Math.max(0, Math.min(bitmap.width - 1, Math.round(rect.left * scaleX)));
-  const sy = Math.max(0, Math.min(bitmap.height - 1, Math.round(rect.top * scaleY)));
-  const width = Math.max(1, Math.min(bitmap.width - sx, Math.round(rect.width * scaleX)));
-  const height = Math.max(1, Math.min(bitmap.height - sy, Math.round(rect.height * scaleY)));
+  const sx = Math.max(0, Math.min(bitmap.width, Math.floor(rect.left * scaleX)));
+  const sy = Math.max(0, Math.min(bitmap.height, Math.floor(rect.top * scaleY)));
+  const ex = Math.max(sx + 1, Math.min(bitmap.width, Math.ceil((rect.left + rect.width) * scaleX)));
+  const ey = Math.max(sy + 1, Math.min(bitmap.height, Math.ceil((rect.top + rect.height) * scaleY)));
+  const width = ex - sx;
+  const height = ey - sy;
   const canvas = new OffscreenCanvas(width, height);
-  const context = canvas.getContext("2d");
+  const context = canvas.getContext("2d", { alpha: false });
   context.imageSmoothingEnabled = false;
 
   context.drawImage(bitmap, sx, sy, width, height, 0, 0, width, height);

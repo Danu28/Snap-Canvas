@@ -159,6 +159,10 @@ if (!window.__pagesnapSelectionLoaded) {
   }
 
   function waitForOverlayToDisappear() {
-    return new Promise((resolve) => requestAnimationFrame(resolve));
+    return new Promise((resolve) => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(resolve);
+      });
+    });
   }
 }

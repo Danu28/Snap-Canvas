@@ -202,7 +202,7 @@ function hitTestText(point) {
 function redraw() {
   context.imageSmoothingEnabled = false;
   context.clearRect(0, 0, canvas.width, canvas.height);
-  context.drawImage(captureImage, 0, 0, canvas.width, canvas.height);
+  context.drawImage(captureImage, 0, 0);
   for (const a of annotations) {
     drawAnnotation(a);
   }
