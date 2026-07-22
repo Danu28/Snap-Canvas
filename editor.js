@@ -14,8 +14,10 @@ let captureImage = null;
 let currentTool = "rectangle";
 let drawing = false;
 let startPoint = null;
+let lastPoint = null;
 let snapshotBeforeDraw = null;
 let historyStack = [];
+let calloutCounter = 1;
 
 initialize().catch((error) => {
   setStatus(error.message || "Unable to initialize editor.");
@@ -64,9 +66,25 @@ function onPointerDown(event) {
     return;
   }
 
+  if (currentTool === "callout") {
+    placeCallout(point);
+    return;
+  }
+
   drawing = true;
   startPoint = point;
+  lastPoint = point;
   snapshotBeforeDraw = context.getImageData(0, 0, canvas.width, canvas.height);
+
+  if (currentTool === "pen") {
+    const strokeSize = Number(sizePicker.value);
+    context.lineWidth = strokeSize;
+    context.strokeStyle = colorPicker.value;
+    context.lineCap = "round";
+    context.lineJoin = "round";
+    context.beginPath();
+    context.moveTo(point.x, point.y);
+  }
 }
 
 function onPointerMove(event) {
@@ -75,6 +93,16 @@ function onPointerMove(event) {
   }
 
   const previewPoint = getCanvasPoint(event);
+
+  if (currentTool === "pen") {
+    context.beginPath();
+    context.moveTo(lastPoint.x, lastPoint.y);
+    context.lineTo(previewPoint.x, previewPoint.y);
+    context.stroke();
+    lastPoint = previewPoint;
+    return;
+  }
+
   context.putImageData(snapshotBeforeDraw, 0, 0);
   drawAnnotation(startPoint, previewPoint);
 }
@@ -86,11 +114,36 @@ function onPointerUp(event) {
 
   drawing = false;
   const endPoint = getCanvasPoint(event);
+
+  if (currentTool === "pen") {
+    if (lastPoint.x === startPoint.x && lastPoint.y === startPoint.y) {
+      context.beginPath();
+      context.fillStyle = colorPicker.value;
+      context.arc(startPoint.x, startPoint.y, Number(sizePicker.value) / 2, 0, Math.PI * 2);
+      context.fill();
+    }
+    commitHistory();
+    snapshotBeforeDraw = null;
+    startPoint = null;
+    lastPoint = null;
+    return;
+  }
+
   context.putImageData(snapshotBeforeDraw, 0, 0);
+
+  if (currentTool === "crop") {
+    applyCrop(startPoint, endPoint);
+    snapshotBeforeDraw = null;
+    startPoint = null;
+    lastPoint = null;
+    return;
+  }
+
   drawAnnotation(startPoint, endPoint);
   commitHistory();
   snapshotBeforeDraw = null;
   startPoint = null;
+  lastPoint = null;
 }
 
 function drawAnnotation(from, to) {
@@ -116,6 +169,33 @@ function drawAnnotation(from, to) {
     context.fillRect(rect.x, rect.y, rect.width, rect.height);
     context.restore();
     context.strokeRect(rect.x, rect.y, rect.width, rect.height);
+    return;
+  }
+
+  if (currentTool === "redact") {
+    const rect = normalizeRect(from, to);
+    if (rect.width < 2 || rect.height < 2) return;
+    pixelateRect(rect);
+    return;
+  }
+
+  if (currentTool === "crop") {
+    const rect = normalizeRect(from, to);
+    const x = Math.max(0, Math.floor(rect.x));
+    const y = Math.max(0, Math.floor(rect.y));
+    const width = Math.min(canvas.width - x, Math.floor(rect.width));
+    const height = Math.min(canvas.height - y, Math.floor(rect.height));
+    if (width < 1 || height < 1) return;
+    const kept = context.getImageData(x, y, width, height);
+    context.fillStyle = "rgba(0, 0, 0, 0.35)";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.putImageData(kept, x, y);
+    context.save();
+    context.strokeStyle = "#fff";
+    context.lineWidth = 2;
+    context.setLineDash([6, 4]);
+    context.strokeRect(x, y, width, height);
+    context.restore();
     return;
   }
 
@@ -149,6 +229,50 @@ function drawArrow(from, to, strokeSize, color) {
   context.fill();
 }
 
+function pixelateRect(rect) {
+  const x = Math.max(0, Math.floor(rect.x));
+  const y = Math.max(0, Math.floor(rect.y));
+  const width = Math.min(canvas.width - x, Math.floor(rect.width));
+  const height = Math.min(canvas.height - y, Math.floor(rect.height));
+  if (width < 2 || height < 2) return;
+
+  const block = Math.max(8, Math.min(24, Math.round(Math.min(width, height) / 8)));
+  const sw = Math.max(1, Math.floor(width / block));
+  const sh = Math.max(1, Math.floor(height / block));
+  const temp = document.createElement("canvas");
+  temp.width = sw;
+  temp.height = sh;
+  const tempCtx = temp.getContext("2d");
+  tempCtx.imageSmoothingEnabled = false;
+  tempCtx.drawImage(canvas, x, y, width, height, 0, 0, sw, sh);
+  context.imageSmoothingEnabled = false;
+  context.drawImage(temp, 0, 0, sw, sh, x, y, width, height);
+  context.imageSmoothingEnabled = true;
+}
+
+function placeCallout(point) {
+  const color = colorPicker.value;
+  const radius = Math.max(14, Number(sizePicker.value) * 4);
+  const label = String(calloutCounter);
+
+  context.beginPath();
+  context.fillStyle = color;
+  context.arc(point.x, point.y, radius, 0, Math.PI * 2);
+  context.fill();
+
+  context.fillStyle = "#fff";
+  context.font = `700 ${Math.round(radius * 1.1)}px Georgia, serif`;
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillText(label, point.x, point.y + 1);
+  context.textAlign = "start";
+  context.textBaseline = "alphabetic";
+
+  calloutCounter += 1;
+  commitHistory();
+  setStatus(`Callout ${label} placed.`);
+}
+
 function placeText(point) {
   const value = window.prompt("Enter annotation text:");
 
@@ -167,6 +291,28 @@ function placeText(point) {
   setStatus("Text annotation added.");
 }
 
+function applyCrop(from, to) {
+  const rect = normalizeRect(from, to);
+  const x = Math.max(0, Math.floor(rect.x));
+  const y = Math.max(0, Math.floor(rect.y));
+  const width = Math.min(canvas.width - x, Math.floor(rect.width));
+  const height = Math.min(canvas.height - y, Math.floor(rect.height));
+
+  if (width < 4 || height < 4) {
+    context.putImageData(snapshotBeforeDraw, 0, 0);
+    setStatus("Crop area too small.");
+    return;
+  }
+
+  const cropped = context.getImageData(x, y, width, height);
+  canvas.width = width;
+  canvas.height = height;
+  context.putImageData(cropped, 0, 0);
+  historyStack = [context.getImageData(0, 0, canvas.width, canvas.height)];
+  calloutCounter = 1;
+  setStatus("Image cropped.");
+}
+
 function undo() {
   if (historyStack.length <= 1) {
     setStatus("Nothing left to undo.");
@@ -174,14 +320,25 @@ function undo() {
   }
 
   historyStack.pop();
-  context.putImageData(historyStack[historyStack.length - 1], 0, 0);
+  const previous = historyStack[historyStack.length - 1];
+  if (previous.width !== canvas.width || previous.height !== canvas.height) {
+    canvas.width = previous.width;
+    canvas.height = previous.height;
+  }
+  context.putImageData(previous, 0, 0);
   setStatus("Last annotation removed.");
 }
 
 function resetCanvas() {
   if (historyStack.length === 0) return;
-  historyStack = [historyStack[0]];
-  context.putImageData(historyStack[0], 0, 0);
+  const base = historyStack[0];
+  if (base.width !== canvas.width || base.height !== canvas.height) {
+    canvas.width = base.width;
+    canvas.height = base.height;
+  }
+  historyStack = [base];
+  context.putImageData(base, 0, 0);
+  calloutCounter = 1;
   setStatus("Annotations cleared.");
 }
 
