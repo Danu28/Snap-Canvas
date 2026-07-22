@@ -7,6 +7,7 @@ SnapCanvas is a Chrome extension for capturing and annotating screenshots of the
 - Full page screenshot capture with scroll-and-stitch
 - Visible area screenshot capture
 - Selected area screenshot capture
+- Keyboard shortcuts: `Ctrl+Shift+1` (full page), `Ctrl+Shift+2` (visible area), `Ctrl+Shift+3` (selected area)
 - Annotation tools for rectangle, arrow, text, and highlight
 - Undo, clear, and PNG download
 
