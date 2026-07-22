@@ -1,23 +1,30 @@
 const STORAGE_KEY = "latestCapture";
+const STROKE = 4;
+const FONT_SIZE = 22;
+const FONT = `700 ${FONT_SIZE}px Georgia, serif`;
+
 const canvas = document.querySelector("#editorCanvas");
-const context = canvas.getContext("2d", { willReadFrequently: true });
+const context = canvas.getContext("2d");
 const statusElement = document.querySelector("#editorStatus");
-const colorPicker = document.querySelector("#colorPicker");
-const sizePicker = document.querySelector("#sizePicker");
 const toolButtons = [...document.querySelectorAll(".tool-button")];
+const colorSwatches = [...document.querySelectorAll(".color-swatch")];
 const undoButton = document.querySelector("#undoButton");
-const clearButton = document.querySelector("#clearButton");
 const copyButton = document.querySelector("#copyButton");
 const downloadButton = document.querySelector("#downloadButton");
 
 let captureImage = null;
 let currentTool = "rectangle";
+let activeColor = "#e53935";
+let annotations = [];
+let historyStack = [[]];
 let drawing = false;
 let startPoint = null;
-let lastPoint = null;
-let snapshotBeforeDraw = null;
-let historyStack = [];
-let calloutCounter = 1;
+let dragTextIndex = -1;
+let dragOffset = null;
+
+colorSwatches.forEach((btn) => {
+  btn.style.setProperty("--swatch", btn.dataset.color);
+});
 
 initialize().catch((error) => {
   setStatus(error.message || "Unable to initialize editor.");
@@ -34,8 +41,9 @@ async function initialize() {
   captureImage = await loadImage(capture.dataUrl);
   canvas.width = captureImage.width;
   canvas.height = captureImage.height;
-  context.drawImage(captureImage, 0, 0);
-  historyStack = [context.getImageData(0, 0, canvas.width, canvas.height)];
+  annotations = [];
+  historyStack = [[]];
+  redraw();
   bindEvents();
   setStatus(`Ready to annotate your ${capture.mode} capture.`);
 }
@@ -49,11 +57,18 @@ function bindEvents() {
     });
   });
 
+  colorSwatches.forEach((button) => {
+    button.addEventListener("click", () => {
+      activeColor = button.dataset.color;
+      colorSwatches.forEach((swatch) => swatch.classList.toggle("is-active", swatch === button));
+      setStatus(activeColor === "#e53935" ? "Color: red." : "Color: green.");
+    });
+  });
+
   canvas.addEventListener("pointerdown", onPointerDown);
   canvas.addEventListener("pointermove", onPointerMove);
   window.addEventListener("pointerup", onPointerUp);
   undoButton.addEventListener("click", undo);
-  clearButton.addEventListener("click", resetCanvas);
   copyButton.addEventListener("click", copyImage);
   downloadButton.addEventListener("click", downloadImage);
 }
@@ -62,255 +77,206 @@ function onPointerDown(event) {
   const point = getCanvasPoint(event);
 
   if (currentTool === "text") {
-    placeText(point);
-    return;
-  }
+    const hit = hitTestText(point);
+    if (hit >= 0) {
+      dragTextIndex = hit;
+      const t = annotations[hit];
+      dragOffset = { x: point.x - t.x, y: point.y - t.y };
+      canvas.setPointerCapture(event.pointerId);
+      setStatus("Dragging text.");
+      return;
+    }
 
-  if (currentTool === "callout") {
-    placeCallout(point);
+    placeText(point);
     return;
   }
 
   drawing = true;
   startPoint = point;
-  lastPoint = point;
-  snapshotBeforeDraw = context.getImageData(0, 0, canvas.width, canvas.height);
-
-  if (currentTool === "pen") {
-    const strokeSize = Number(sizePicker.value);
-    context.lineWidth = strokeSize;
-    context.strokeStyle = colorPicker.value;
-    context.lineCap = "round";
-    context.lineJoin = "round";
-    context.beginPath();
-    context.moveTo(point.x, point.y);
-  }
+  canvas.setPointerCapture(event.pointerId);
 }
 
 function onPointerMove(event) {
-  if (!drawing || !snapshotBeforeDraw) {
+  const point = getCanvasPoint(event);
+
+  if (dragTextIndex >= 0) {
+    const t = annotations[dragTextIndex];
+    t.x = point.x - dragOffset.x;
+    t.y = point.y - dragOffset.y;
+    redraw();
     return;
   }
 
-  const previewPoint = getCanvasPoint(event);
-
-  if (currentTool === "pen") {
-    context.beginPath();
-    context.moveTo(lastPoint.x, lastPoint.y);
-    context.lineTo(previewPoint.x, previewPoint.y);
-    context.stroke();
-    lastPoint = previewPoint;
+  if (!drawing || !startPoint) {
     return;
   }
 
-  context.putImageData(snapshotBeforeDraw, 0, 0);
-  drawAnnotation(startPoint, previewPoint);
+  redraw();
+  drawPreview(startPoint, point);
 }
 
 function onPointerUp(event) {
-  if (!drawing || !snapshotBeforeDraw) {
+  if (dragTextIndex >= 0) {
+    dragTextIndex = -1;
+    dragOffset = null;
+    commitHistory();
+    setStatus("Text moved.");
+    return;
+  }
+
+  if (!drawing || !startPoint) {
     return;
   }
 
   drawing = false;
   const endPoint = getCanvasPoint(event);
+  const dx = Math.abs(endPoint.x - startPoint.x);
+  const dy = Math.abs(endPoint.y - startPoint.y);
 
-  if (currentTool === "pen") {
-    if (lastPoint.x === startPoint.x && lastPoint.y === startPoint.y) {
-      context.beginPath();
-      context.fillStyle = colorPicker.value;
-      context.arc(startPoint.x, startPoint.y, Number(sizePicker.value) / 2, 0, Math.PI * 2);
-      context.fill();
+  if (dx >= 2 || dy >= 2) {
+    if (currentTool === "rectangle") {
+      const rect = normalizeRect(startPoint, endPoint);
+      annotations.push({
+        type: "rectangle",
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+        color: activeColor
+      });
+    } else if (currentTool === "arrow") {
+      annotations.push({
+        type: "arrow",
+        x1: startPoint.x,
+        y1: startPoint.y,
+        x2: endPoint.x,
+        y2: endPoint.y,
+        color: activeColor
+      });
     }
     commitHistory();
-    snapshotBeforeDraw = null;
-    startPoint = null;
-    lastPoint = null;
-    return;
+    setStatus("Annotation added.");
   }
 
-  context.putImageData(snapshotBeforeDraw, 0, 0);
-
-  if (currentTool === "crop") {
-    applyCrop(startPoint, endPoint);
-    snapshotBeforeDraw = null;
-    startPoint = null;
-    lastPoint = null;
-    return;
-  }
-
-  drawAnnotation(startPoint, endPoint);
-  commitHistory();
-  snapshotBeforeDraw = null;
   startPoint = null;
-  lastPoint = null;
-}
-
-function drawAnnotation(from, to) {
-  const color = colorPicker.value;
-  const strokeSize = Number(sizePicker.value);
-
-  context.lineWidth = strokeSize;
-  context.strokeStyle = color;
-  context.fillStyle = color;
-  context.lineCap = "round";
-  context.lineJoin = "round";
-
-  if (currentTool === "rectangle") {
-    const rect = normalizeRect(from, to);
-    context.strokeRect(rect.x, rect.y, rect.width, rect.height);
-    return;
-  }
-
-  if (currentTool === "highlight") {
-    const rect = normalizeRect(from, to);
-    context.save();
-    context.globalAlpha = 0.28;
-    context.fillRect(rect.x, rect.y, rect.width, rect.height);
-    context.restore();
-    context.strokeRect(rect.x, rect.y, rect.width, rect.height);
-    return;
-  }
-
-  if (currentTool === "redact") {
-    const rect = normalizeRect(from, to);
-    if (rect.width < 2 || rect.height < 2) return;
-    pixelateRect(rect);
-    return;
-  }
-
-  if (currentTool === "crop") {
-    const rect = normalizeRect(from, to);
-    const x = Math.max(0, Math.floor(rect.x));
-    const y = Math.max(0, Math.floor(rect.y));
-    const width = Math.min(canvas.width - x, Math.floor(rect.width));
-    const height = Math.min(canvas.height - y, Math.floor(rect.height));
-    if (width < 1 || height < 1) return;
-    const kept = context.getImageData(x, y, width, height);
-    context.fillStyle = "rgba(0, 0, 0, 0.35)";
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.putImageData(kept, x, y);
-    context.save();
-    context.strokeStyle = "#fff";
-    context.lineWidth = 2;
-    context.setLineDash([6, 4]);
-    context.strokeRect(x, y, width, height);
-    context.restore();
-    return;
-  }
-
-  if (currentTool === "arrow") {
-    drawArrow(from, to, strokeSize, color);
-  }
-}
-
-function drawArrow(from, to, strokeSize, color) {
-  const headLength = Math.max(14, strokeSize * 4);
-  const angle = Math.atan2(to.y - from.y, to.x - from.x);
-
-  context.strokeStyle = color;
-  context.fillStyle = color;
-  context.beginPath();
-  context.moveTo(from.x, from.y);
-  context.lineTo(to.x, to.y);
-  context.stroke();
-
-  context.beginPath();
-  context.moveTo(to.x, to.y);
-  context.lineTo(
-    to.x - headLength * Math.cos(angle - Math.PI / 7),
-    to.y - headLength * Math.sin(angle - Math.PI / 7)
-  );
-  context.lineTo(
-    to.x - headLength * Math.cos(angle + Math.PI / 7),
-    to.y - headLength * Math.sin(angle + Math.PI / 7)
-  );
-  context.closePath();
-  context.fill();
-}
-
-function pixelateRect(rect) {
-  const x = Math.max(0, Math.floor(rect.x));
-  const y = Math.max(0, Math.floor(rect.y));
-  const width = Math.min(canvas.width - x, Math.floor(rect.width));
-  const height = Math.min(canvas.height - y, Math.floor(rect.height));
-  if (width < 2 || height < 2) return;
-
-  const block = Math.max(8, Math.min(24, Math.round(Math.min(width, height) / 8)));
-  const sw = Math.max(1, Math.floor(width / block));
-  const sh = Math.max(1, Math.floor(height / block));
-  const temp = document.createElement("canvas");
-  temp.width = sw;
-  temp.height = sh;
-  const tempCtx = temp.getContext("2d");
-  tempCtx.imageSmoothingEnabled = false;
-  tempCtx.drawImage(canvas, x, y, width, height, 0, 0, sw, sh);
-  context.imageSmoothingEnabled = false;
-  context.drawImage(temp, 0, 0, sw, sh, x, y, width, height);
-  context.imageSmoothingEnabled = true;
-}
-
-function placeCallout(point) {
-  const color = colorPicker.value;
-  const radius = Math.max(14, Number(sizePicker.value) * 4);
-  const label = String(calloutCounter);
-
-  context.beginPath();
-  context.fillStyle = color;
-  context.arc(point.x, point.y, radius, 0, Math.PI * 2);
-  context.fill();
-
-  context.fillStyle = "#fff";
-  context.font = `700 ${Math.round(radius * 1.1)}px Georgia, serif`;
-  context.textAlign = "center";
-  context.textBaseline = "middle";
-  context.fillText(label, point.x, point.y + 1);
-  context.textAlign = "start";
-  context.textBaseline = "alphabetic";
-
-  calloutCounter += 1;
-  commitHistory();
-  setStatus(`Callout ${label} placed.`);
+  redraw();
 }
 
 function placeText(point) {
   const value = window.prompt("Enter annotation text:");
-
   if (!value) {
     return;
   }
 
-  const color = colorPicker.value;
-  const fontSize = Math.max(18, Number(sizePicker.value) * 5);
-
-  context.fillStyle = color;
-  context.font = `700 ${fontSize}px Georgia, serif`;
-  context.textBaseline = "top";
-  context.fillText(value, point.x, point.y);
+  annotations.push({
+    type: "text",
+    x: point.x,
+    y: point.y,
+    value,
+    color: activeColor
+  });
   commitHistory();
-  setStatus("Text annotation added.");
+  redraw();
+  setStatus("Text added. Click it to drag.");
 }
 
-function applyCrop(from, to) {
-  const rect = normalizeRect(from, to);
-  const x = Math.max(0, Math.floor(rect.x));
-  const y = Math.max(0, Math.floor(rect.y));
-  const width = Math.min(canvas.width - x, Math.floor(rect.width));
-  const height = Math.min(canvas.height - y, Math.floor(rect.height));
+function hitTestText(point) {
+  context.font = FONT;
+  for (let i = annotations.length - 1; i >= 0; i -= 1) {
+    const a = annotations[i];
+    if (a.type !== "text") continue;
+    const width = context.measureText(a.value).width;
+    const height = FONT_SIZE * 1.2;
+    if (
+      point.x >= a.x - 4 &&
+      point.x <= a.x + width + 4 &&
+      point.y >= a.y - 4 &&
+      point.y <= a.y + height + 4
+    ) {
+      return i;
+    }
+  }
+  return -1;
+}
 
-  if (width < 4 || height < 4) {
-    context.putImageData(snapshotBeforeDraw, 0, 0);
-    setStatus("Crop area too small.");
+function redraw() {
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.drawImage(captureImage, 0, 0);
+  for (const a of annotations) {
+    drawAnnotation(a);
+  }
+}
+
+function drawPreview(from, to) {
+  if (currentTool === "rectangle") {
+    const rect = normalizeRect(from, to);
+    drawAnnotation({
+      type: "rectangle",
+      x: rect.x,
+      y: rect.y,
+      width: rect.width,
+      height: rect.height,
+      color: activeColor
+    });
+  } else if (currentTool === "arrow") {
+    drawAnnotation({
+      type: "arrow",
+      x1: from.x,
+      y1: from.y,
+      x2: to.x,
+      y2: to.y,
+      color: activeColor
+    });
+  }
+}
+
+function drawAnnotation(a) {
+  context.lineWidth = STROKE;
+  context.strokeStyle = a.color;
+  context.fillStyle = a.color;
+  context.lineCap = "round";
+  context.lineJoin = "round";
+
+  if (a.type === "rectangle") {
+    context.strokeRect(a.x, a.y, a.width, a.height);
     return;
   }
 
-  const cropped = context.getImageData(x, y, width, height);
-  canvas.width = width;
-  canvas.height = height;
-  context.putImageData(cropped, 0, 0);
-  historyStack = [context.getImageData(0, 0, canvas.width, canvas.height)];
-  calloutCounter = 1;
-  setStatus("Image cropped.");
+  if (a.type === "arrow") {
+    drawArrow(a.x1, a.y1, a.x2, a.y2, a.color);
+    return;
+  }
+
+  if (a.type === "text") {
+    context.font = FONT;
+    context.textBaseline = "top";
+    context.fillText(a.value, a.x, a.y);
+  }
+}
+
+function drawArrow(x1, y1, x2, y2, color) {
+  const headLength = Math.max(14, STROKE * 4);
+  const angle = Math.atan2(y2 - y1, x2 - x1);
+
+  context.strokeStyle = color;
+  context.fillStyle = color;
+  context.beginPath();
+  context.moveTo(x1, y1);
+  context.lineTo(x2, y2);
+  context.stroke();
+
+  context.beginPath();
+  context.moveTo(x2, y2);
+  context.lineTo(
+    x2 - headLength * Math.cos(angle - Math.PI / 7),
+    y2 - headLength * Math.sin(angle - Math.PI / 7)
+  );
+  context.lineTo(
+    x2 - headLength * Math.cos(angle + Math.PI / 7),
+    y2 - headLength * Math.sin(angle + Math.PI / 7)
+  );
+  context.closePath();
+  context.fill();
 }
 
 function undo() {
@@ -320,26 +286,20 @@ function undo() {
   }
 
   historyStack.pop();
-  const previous = historyStack[historyStack.length - 1];
-  if (previous.width !== canvas.width || previous.height !== canvas.height) {
-    canvas.width = previous.width;
-    canvas.height = previous.height;
-  }
-  context.putImageData(previous, 0, 0);
-  setStatus("Last annotation removed.");
+  annotations = cloneAnnotations(historyStack[historyStack.length - 1]);
+  redraw();
+  setStatus("Last change undone.");
 }
 
-function resetCanvas() {
-  if (historyStack.length === 0) return;
-  const base = historyStack[0];
-  if (base.width !== canvas.width || base.height !== canvas.height) {
-    canvas.width = base.width;
-    canvas.height = base.height;
+function commitHistory() {
+  historyStack.push(cloneAnnotations(annotations));
+  if (historyStack.length > 50) {
+    historyStack.shift();
   }
-  historyStack = [base];
-  context.putImageData(base, 0, 0);
-  calloutCounter = 1;
-  setStatus("Annotations cleared.");
+}
+
+function cloneAnnotations(list) {
+  return list.map((a) => ({ ...a }));
 }
 
 function downloadImage() {
@@ -369,13 +329,6 @@ async function copyImage() {
     setStatus("Image copied to clipboard.");
   } catch (error) {
     setStatus(error?.message || "Failed to copy image. Use download instead.");
-  }
-}
-
-function commitHistory() {
-  historyStack.push(context.getImageData(0, 0, canvas.width, canvas.height));
-  if (historyStack.length > 50) {
-    historyStack.shift();
   }
 }
 

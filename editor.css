@@ -96,8 +96,30 @@ body {
   color: var(--muted);
 }
 
-.field input {
-  width: 100%;
+.color-swatches {
+  display: flex;
+  gap: 10px;
+}
+
+.color-swatch {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 2px solid rgba(24, 21, 17, 0.2);
+  border-radius: 8px;
+  cursor: pointer;
+  background: var(--swatch, #ccc);
+  box-shadow: none;
+  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+}
+
+.color-swatch:hover {
+  transform: translateY(-1px);
+}
+
+.color-swatch.is-active {
+  border-color: var(--text);
+  box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--text);
 }
 
 .actions {
