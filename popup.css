@@ -57,6 +57,34 @@ body {
   color: var(--muted);
 }
 
+.options {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: rgba(255, 250, 240, 0.7);
+}
+
+.options label {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.options select {
+  flex: 1;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+  background: var(--panel-strong);
+  color: var(--text);
+  cursor: pointer;
+}
+
 .actions {
   display: grid;
   gap: 12px;

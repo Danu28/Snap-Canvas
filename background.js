@@ -14,7 +14,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message?.type === "SELECTION_COMPLETE") {
+  if (message?.type === "SELECTION_COMPLETE" || message?.type === "ELEMENT_SELECTED") {
     handleSelectedCapture(message, sender).then(
       () => sendResponse({ ok: true }),
       (error) => sendResponse({ ok: false, error: error.message })
@@ -33,7 +33,42 @@ chrome.commands.onCommand.addListener(async (command) => {
   handleCapture({ mode, tabId: tab.id, windowId: tab.windowId }).catch(console.error);
 });
 
-async function handleCapture({ mode, tabId, windowId }) {
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({
+      id: "pagesnap-capture-element",
+      title: "Capture element",
+      contexts: ["all"]
+    });
+  });
+});
+
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (info.menuItemId !== "pagesnap-capture-element") return;
+  if (!tab?.id || !tab?.windowId) return;
+
+  try {
+    const protocol = new URL(tab.url || "").protocol;
+    if (protocol !== "http:" && protocol !== "https:") return;
+  } catch {
+    return;
+  }
+
+  try {
+    await ensureElementPickerScript(tab.id);
+    await chrome.tabs.sendMessage(tab.id, { type: "BEGIN_ELEMENT_PICK" });
+  } catch (error) {
+    console.error("PageSnap element picker failed:", error);
+  }
+});
+
+async function handleCapture({ mode, tabId, windowId, delayMs = 0 }) {
+  // Delayed capture applies to full/visible only; the timer is owned here (in
+  // the service worker), so it survives the popup closing mid-countdown.
+  if (delayMs > 0 && mode !== "selected") {
+    await delay(delayMs);
+  }
+
   if (mode === "visible") {
     const dataUrl = await captureTabWithoutScrollbars(tabId, windowId);
     await storeCaptureAndOpenEditor({ dataUrl, mode });
@@ -62,6 +97,18 @@ async function ensureSelectionScript(tabId) {
     await chrome.scripting.executeScript({
       target: { tabId },
       files: ["selection.js"]
+    });
+    await delay(SELECTION_MESSAGE_TIMEOUT);
+  }
+}
+
+async function ensureElementPickerScript(tabId) {
+  try {
+    await chrome.tabs.sendMessage(tabId, { type: "PING_ELEMENT_PICKER" });
+  } catch (error) {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ["element-picker.js"]
     });
     await delay(SELECTION_MESSAGE_TIMEOUT);
   }
@@ -321,13 +368,19 @@ async function cropSelectedArea(dataUrl, rect) {
 }
 
 async function storeCaptureAndOpenEditor({ dataUrl, mode }) {
-  await chrome.storage.local.set({
-    [CAPTURE_STORAGE_KEY]: {
-      dataUrl,
-      mode,
-      capturedAt: new Date().toISOString()
-    }
-  });
+  try {
+    await chrome.storage.local.set({
+      [CAPTURE_STORAGE_KEY]: {
+        dataUrl,
+        mode,
+        capturedAt: new Date().toISOString()
+      }
+    });
+  } catch (error) {
+    throw new Error(
+      `Unable to save the capture to storage (${error?.message || "storage error"}). Try a smaller region.`
+    );
+  }
 
   await chrome.tabs.create({ url: chrome.runtime.getURL("editor.html") });
 }

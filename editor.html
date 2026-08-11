@@ -18,6 +18,7 @@
         <button class="tool-button is-active" data-tool="rectangle">Rectangle</button>
         <button class="tool-button" data-tool="arrow">Arrow</button>
         <button class="tool-button" data-tool="text">Text</button>
+        <button class="tool-button" data-tool="select">Select</button>
       </div>
 
       <div class="field">
@@ -32,8 +33,25 @@
         </div>
       </div>
 
+      <div class="field">
+        <span>Text size</span>
+        <select id="fontSizeSelect" class="font-size-select" aria-label="Text size">
+          <option value="14">14 px</option>
+          <option value="22" selected>22 px</option>
+          <option value="32">32 px</option>
+        </select>
+      </div>
+
+      <div class="zoom-controls" role="group" aria-label="Zoom">
+        <button id="zoomOutButton" class="zoom-button" aria-label="Zoom out">−</button>
+        <span id="zoomLabel" class="zoom-label">100%</span>
+        <button id="zoomInButton" class="zoom-button" aria-label="Zoom in">+</button>
+        <button id="fitButton" class="zoom-button" aria-label="Fit to width">Fit</button>
+      </div>
+
       <div class="actions">
         <button id="undoButton" class="secondary">Undo</button>
+        <button id="redoButton" class="secondary">Redo</button>
         <button id="copyButton" class="secondary">Copy Image</button>
         <button id="downloadButton" class="primary">Download PNG</button>
       </div>

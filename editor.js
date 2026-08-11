@@ -1,14 +1,25 @@
 const STORAGE_KEY = "latestCapture";
 const STROKE = 4;
 const FONT_SIZE = 22;
-const FONT = `700 ${FONT_SIZE}px Georgia, serif`;
+const ZOOM_MIN = 0.25;
+const ZOOM_MAX = 8;
+const ZOOM_STEP = 1.25;
+const HISTORY_LIMIT = 50;
 
 const canvas = document.querySelector("#editorCanvas");
+const canvasArea = document.querySelector(".canvas-area");
+const canvasWrap = document.querySelector(".canvas-wrap");
+const zoomLabel = document.querySelector("#zoomLabel");
+const zoomInButton = document.querySelector("#zoomInButton");
+const zoomOutButton = document.querySelector("#zoomOutButton");
+const fitButton = document.querySelector("#fitButton");
+const fontSizeSelect = document.querySelector("#fontSizeSelect");
 const context = canvas.getContext("2d", { willReadFrequently: true });
 const statusElement = document.querySelector("#editorStatus");
 const toolButtons = [...document.querySelectorAll(".tool-button")];
 const colorSwatches = [...document.querySelectorAll(".color-swatch")];
 const undoButton = document.querySelector("#undoButton");
+const redoButton = document.querySelector("#redoButton");
 const copyButton = document.querySelector("#copyButton");
 const downloadButton = document.querySelector("#downloadButton");
 
@@ -17,10 +28,21 @@ let currentTool = "rectangle";
 let activeColor = "#43a047";
 let annotations = [];
 let historyStack = [[]];
+let redoStack = [];
 let drawing = false;
 let startPoint = null;
 let dragTextIndex = -1;
 let dragOffset = null;
+let zoom = 1;
+let spaceDown = false;
+let panning = false;
+let panStart = null;
+let activeFontSize = FONT_SIZE;
+let textEditor = null;
+let textEditorMeta = null;
+let selectedIndex = -1;
+let dragTarget = -1;
+let resizeState = null;
 
 colorSwatches.forEach((btn) => {
   btn.style.setProperty("--swatch", btn.dataset.color);
@@ -41,11 +63,24 @@ async function initialize() {
   captureImage = await loadImage(capture.dataUrl);
   canvas.width = captureImage.width;
   canvas.height = captureImage.height;
+  fitToWidth();
   annotations = [];
   historyStack = [[]];
+  redoStack = [];
   redraw();
   bindEvents();
-  setStatus(`Ready to annotate your ${capture.mode} capture.`);
+  setStatus(
+    `Ready to annotate your ${capture.mode} capture.${getExtensionVersion() ? ` (v${getExtensionVersion()})` : ""}`
+  );
+  console.info("SnapCanvas editor ready", getExtensionVersion() || "(unknown version)");
+}
+
+function getExtensionVersion() {
+  try {
+    return chrome.runtime.getManifest?.().version || "";
+  } catch {
+    return "";
+  }
 }
 
 function bindEvents() {
@@ -69,12 +104,31 @@ function bindEvents() {
   canvas.addEventListener("pointermove", onPointerMove);
   window.addEventListener("pointerup", onPointerUp);
   undoButton.addEventListener("click", undo);
+  redoButton.addEventListener("click", redo);
   copyButton.addEventListener("click", copyImage);
   downloadButton.addEventListener("click", downloadImage);
+  zoomInButton.addEventListener("click", () => setZoom(zoom * ZOOM_STEP));
+  zoomOutButton.addEventListener("click", () => setZoom(zoom / ZOOM_STEP));
+  fitButton.addEventListener("click", fitToWidth);
+  canvasArea.addEventListener("wheel", onWheel, { passive: false });
+  window.addEventListener("keydown", onKeyDown);
+  window.addEventListener("keyup", onKeyUp);
+  fontSizeSelect.addEventListener("change", () => {
+    activeFontSize = parseInt(fontSizeSelect.value, 10) || FONT_SIZE;
+  });
 }
 
 function onPointerDown(event) {
+  if (textEditor) {
+    return; // the blur handler commits the open text editor
+  }
+
   const point = getCanvasPoint(event);
+
+  if (spaceDown || event.button === 1) {
+    startPan(event);
+    return;
+  }
 
   if (currentTool === "text") {
     const hit = hitTestText(point);
@@ -87,7 +141,39 @@ function onPointerDown(event) {
       return;
     }
 
-    placeText(point);
+    // preventDefault stops the browser's mousedown focus-management from
+    // stealing focus from the textarea we're about to create (which would blur
+    // and instantly commit-cancel it).
+    event.preventDefault();
+    showTextEditor(point);
+    return;
+  }
+
+  if (currentTool === "select") {
+    const handle = hitTestHandle(point);
+    if (handle) {
+      resizeState = { index: selectedIndex, ...handle };
+      canvas.setPointerCapture(event.pointerId);
+      return;
+    }
+
+    const hit = hitTestAnnotation(point);
+    if (hit >= 0) {
+      selectedIndex = hit;
+      dragTarget = hit;
+      const a = annotations[hit];
+      dragOffset =
+        a.type === "arrow"
+          ? { x: point.x - a.x1, y: point.y - a.y1 }
+          : { x: point.x - a.x, y: point.y - a.y };
+      redraw();
+      setStatus("Selected. Drag to move, drag handles to resize.");
+    } else {
+      selectedIndex = -1;
+      redraw();
+      setStatus("Nothing selected.");
+    }
+    canvas.setPointerCapture(event.pointerId);
     return;
   }
 
@@ -97,7 +183,36 @@ function onPointerDown(event) {
 }
 
 function onPointerMove(event) {
+  if (panning && panStart) {
+    canvasArea.scrollLeft = panStart.scrollLeft - (event.clientX - panStart.x);
+    canvasArea.scrollTop = panStart.scrollTop - (event.clientY - panStart.y);
+    return;
+  }
+
   const point = getCanvasPoint(event);
+
+  if (resizeState) {
+    applyResize(resizeState, point);
+    redraw();
+    return;
+  }
+
+  if (dragTarget >= 0) {
+    const a = annotations[dragTarget];
+    if (a.type === "arrow") {
+      const nextX1 = point.x - dragOffset.x;
+      const nextY1 = point.y - dragOffset.y;
+      a.x2 += nextX1 - a.x1;
+      a.y2 += nextY1 - a.y1;
+      a.x1 = nextX1;
+      a.y1 = nextY1;
+    } else {
+      a.x = point.x - dragOffset.x;
+      a.y = point.y - dragOffset.y;
+    }
+    redraw();
+    return;
+  }
 
   if (dragTextIndex >= 0) {
     const t = annotations[dragTextIndex];
@@ -116,6 +231,25 @@ function onPointerMove(event) {
 }
 
 function onPointerUp(event) {
+  if (panning) {
+    panning = false;
+    panStart = null;
+    if (!spaceDown) {
+      canvasWrap.classList.remove("panning");
+    }
+    return;
+  }
+
+  if (resizeState || dragTarget >= 0) {
+    resizeState = null;
+    dragTarget = -1;
+    dragOffset = null;
+    commitHistory();
+    redraw();
+    setStatus("Annotation updated.");
+    return;
+  }
+
   if (dragTextIndex >= 0) {
     dragTextIndex = -1;
     dragOffset = null;
@@ -162,31 +296,93 @@ function onPointerUp(event) {
   redraw();
 }
 
-function placeText(point) {
-  const value = window.prompt("Enter annotation text:");
-  if (!value) {
+function showTextEditor(point) {
+  if (textEditor) {
+    // Self-heal a stale editor left behind by a crashed commit (should not
+    // normally happen; onPointerDown already early-returns while one is open).
+    textEditor.remove();
+    textEditor = null;
+    textEditorMeta = null;
+  }
+
+  textEditorMeta = { x: point.x, y: point.y, color: activeColor, fontSize: activeFontSize };
+
+  // Position the overlay at the canvas-space point, mapped to screen space at current zoom.
+  const canvasRect = canvas.getBoundingClientRect();
+  const left = canvasRect.left + (point.x / captureImage.width) * canvasRect.width;
+  const top = canvasRect.top + (point.y / captureImage.height) * canvasRect.height;
+
+  textEditor = document.createElement("textarea");
+  textEditor.className = "text-editor-overlay";
+  textEditor.style.left = `${left}px`;
+  textEditor.style.top = `${top}px`;
+  textEditor.style.fontSize = `${activeFontSize}px`;
+  textEditor.style.color = activeColor;
+  document.body.appendChild(textEditor);
+  textEditor.focus();
+
+  textEditor.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      closeTextEditor(null);
+      event.stopPropagation();
+    } else if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      closeTextEditor(textEditor.value);
+      event.stopPropagation();
+    }
+  });
+
+  textEditor.addEventListener("blur", () => {
+    // Re-entrant blur fires synchronously from remove() inside closeTextEditor;
+    // by then textEditor is already null, so skip (the caller is committing).
+    if (textEditor) {
+      closeTextEditor(textEditor.value);
+    }
+  });
+
+  setStatus("Type text. Enter to place, Shift+Enter for a new line, Esc to cancel.");
+}
+
+function closeTextEditor(value) {
+  if (!textEditor || !textEditorMeta) {
     return;
   }
 
-  annotations.push({
-    type: "text",
-    x: point.x,
-    y: point.y,
-    value,
-    color: activeColor
-  });
-  commitHistory();
-  redraw();
-  setStatus("Text added. Click it to drag.");
+  const meta = textEditorMeta;
+  const editor = textEditor;
+  // Clear state BEFORE remove(): remove() on the focused textarea fires a
+  // synchronous blur, which re-enters closeTextEditor via the blur listener.
+  // If the state is still set, the re-entrant call removes the already-removed
+  // node and throws NotFoundError, aborting this commit.
+  textEditor = null;
+  textEditorMeta = null;
+  editor.remove();
+
+  if (value && value.trim()) {
+    annotations.push({
+      type: "text",
+      x: meta.x,
+      y: meta.y,
+      value,
+      color: meta.color,
+      fontSize: meta.fontSize
+    });
+    commitHistory();
+    redraw();
+    setStatus("Text added. Click it to drag.");
+  } else {
+    setStatus("Text cancelled.");
+  }
 }
 
 function hitTestText(point) {
-  context.font = FONT;
   for (let i = annotations.length - 1; i >= 0; i -= 1) {
     const a = annotations[i];
     if (a.type !== "text") continue;
+    const fontSize = a.fontSize || FONT_SIZE;
+    context.font = `700 ${fontSize}px Georgia, serif`;
     const width = context.measureText(a.value).width;
-    const height = FONT_SIZE * 1.2;
+    const height = fontSize * 1.2;
     if (
       point.x >= a.x - 4 &&
       point.x <= a.x + width + 4 &&
@@ -199,6 +395,169 @@ function hitTestText(point) {
   return -1;
 }
 
+function hitTestAnnotation(point) {
+  for (let i = annotations.length - 1; i >= 0; i -= 1) {
+    const a = annotations[i];
+    if (a.type === "rectangle") {
+      if (
+        point.x >= a.x - 4 &&
+        point.x <= a.x + a.width + 4 &&
+        point.y >= a.y - 4 &&
+        point.y <= a.y + a.height + 4
+      ) {
+        return i;
+      }
+    } else if (a.type === "arrow") {
+      if (
+        distToSegment(point, { x: a.x1, y: a.y1 }, { x: a.x2, y: a.y2 }) <= 10
+      ) {
+        return i;
+      }
+    } else if (a.type === "text" && hitTestText(point) === i) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+function distToSegment(point, a, b) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const lengthSq = dx * dx + dy * dy;
+  if (lengthSq === 0) {
+    return Math.hypot(point.x - a.x, point.y - a.y);
+  }
+  let t = ((point.x - a.x) * dx + (point.y - a.y) * dy) / lengthSq;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(point.x - (a.x + t * dx), point.y - (a.y + t * dy));
+}
+
+function hitTestHandle(point) {
+  if (selectedIndex < 0) {
+    return null;
+  }
+
+  const a = annotations[selectedIndex];
+  const RADIUS = 14;
+
+  if (a.type === "rectangle") {
+    const corners = {
+      nw: [a.x, a.y],
+      ne: [a.x + a.width, a.y],
+      sw: [a.x, a.y + a.height],
+      se: [a.x + a.width, a.y + a.height]
+    };
+    for (const [name, [hx, hy]] of Object.entries(corners)) {
+      if (Math.hypot(point.x - hx, point.y - hy) <= RADIUS) {
+        return { kind: "rect", handle: name };
+      }
+    }
+  } else if (a.type === "arrow") {
+    if (Math.hypot(point.x - a.x1, point.y - a.y1) <= RADIUS) {
+      return { kind: "arrow", handle: "start" };
+    }
+    if (Math.hypot(point.x - a.x2, point.y - a.y2) <= RADIUS) {
+      return { kind: "arrow", handle: "end" };
+    }
+  }
+
+  return null;
+}
+
+function applyResize(state, point) {
+  const a = annotations[state.index];
+  if (state.kind === "arrow") {
+    if (state.handle === "start") {
+      a.x1 = point.x;
+      a.y1 = point.y;
+    } else {
+      a.x2 = point.x;
+      a.y2 = point.y;
+    }
+    return;
+  }
+
+  const { x, y, width, height } = a;
+  const handle = state.handle;
+  let nextX = x;
+  let nextY = y;
+  let nextWidth = width;
+  let nextHeight = height;
+
+  if (handle.includes("e")) {
+    nextWidth = Math.max(8, point.x - x);
+  }
+  if (handle.includes("s")) {
+    nextHeight = Math.max(8, point.y - y);
+  }
+  if (handle.includes("w")) {
+    const right = x + width;
+    nextX = Math.min(point.x, right - 8);
+    nextWidth = Math.max(8, right - nextX);
+  }
+  if (handle.includes("n")) {
+    const bottom = y + height;
+    nextY = Math.min(point.y, bottom - 8);
+    nextHeight = Math.max(8, bottom - nextY);
+  }
+
+  Object.assign(a, { x: nextX, y: nextY, width: nextWidth, height: nextHeight });
+}
+
+function drawHandles() {
+  if (selectedIndex < 0) {
+    return;
+  }
+
+  const a = annotations[selectedIndex];
+  context.strokeStyle = "#ffb300";
+  context.fillStyle = "#fff";
+  context.lineWidth = 2;
+
+  if (a.type === "rectangle") {
+    const corners = [
+      [a.x, a.y],
+      [a.x + a.width, a.y],
+      [a.x, a.y + a.height],
+      [a.x + a.width, a.y + a.height]
+    ];
+    for (const [hx, hy] of corners) {
+      drawHandleSquare(hx, hy);
+    }
+  } else if (a.type === "arrow") {
+    drawHandleCircle(a.x1, a.y1);
+    drawHandleCircle(a.x2, a.y2);
+  } else if (a.type === "text") {
+    const fontSize = a.fontSize || FONT_SIZE;
+    context.font = `700 ${fontSize}px Georgia, serif`;
+    const width = context.measureText(a.value).width;
+    const height = fontSize * 1.2;
+    const corners = [
+      [a.x - 2, a.y - 2],
+      [a.x + width + 2, a.y - 2],
+      [a.x - 2, a.y + height + 2],
+      [a.x + width + 2, a.y + height + 2]
+    ];
+    for (const [hx, hy] of corners) {
+      drawHandleSquare(hx, hy);
+    }
+  }
+}
+
+function drawHandleSquare(x, y) {
+  context.beginPath();
+  context.rect(x - 5, y - 5, 10, 10);
+  context.fill();
+  context.stroke();
+}
+
+function drawHandleCircle(x, y) {
+  context.beginPath();
+  context.arc(x, y, 6, 0, Math.PI * 2);
+  context.fill();
+  context.stroke();
+}
+
 function redraw() {
   context.imageSmoothingEnabled = false;
   context.clearRect(0, 0, canvas.width, canvas.height);
@@ -206,6 +565,7 @@ function redraw() {
   for (const a of annotations) {
     drawAnnotation(a);
   }
+  drawHandles();
 }
 
 function drawPreview(from, to) {
@@ -249,7 +609,7 @@ function drawAnnotation(a) {
   }
 
   if (a.type === "text") {
-    context.font = FONT;
+    context.font = `700 ${a.fontSize || FONT_SIZE}px Georgia, serif`;
     context.textBaseline = "top";
     context.fillText(a.value, a.x, a.y);
   }
@@ -286,17 +646,91 @@ function undo() {
     return;
   }
 
+  redoStack.push(cloneAnnotations(historyStack[historyStack.length - 1]));
+  if (redoStack.length > HISTORY_LIMIT) {
+    redoStack.shift();
+  }
   historyStack.pop();
   annotations = cloneAnnotations(historyStack[historyStack.length - 1]);
+  selectedIndex = -1;
+  resetDragState();
   redraw();
   setStatus("Last change undone.");
 }
 
-function commitHistory() {
-  historyStack.push(cloneAnnotations(annotations));
-  if (historyStack.length > 50) {
+function redo() {
+  if (redoStack.length === 0) {
+    setStatus("Nothing left to redo.");
+    return;
+  }
+
+  const state = redoStack.pop();
+  historyStack.push(cloneAnnotations(state));
+  if (historyStack.length > HISTORY_LIMIT) {
     historyStack.shift();
   }
+  annotations = cloneAnnotations(state);
+  selectedIndex = -1;
+  resetDragState();
+  redraw();
+  setStatus("Change redone.");
+}
+
+function deleteSelected() {
+  if (selectedIndex < 0) {
+    setStatus("Select an annotation to delete it.");
+    return;
+  }
+
+  annotations.splice(selectedIndex, 1);
+  selectedIndex = -1;
+  resetDragState();
+  commitHistory();
+  redraw();
+  setStatus("Annotation deleted.");
+}
+
+// Destructive ops (undo/redo/delete) replace or shrink annotations[]; any
+// in-flight drag/resize/draw must be abandoned or the next pointermove would
+// dereference a stale index.
+function resetDragState() {
+  drawing = false;
+  startPoint = null;
+  dragTarget = -1;
+  dragTextIndex = -1;
+  dragOffset = null;
+  resizeState = null;
+}
+
+function duplicateSelected() {
+  if (selectedIndex < 0) {
+    setStatus("Select an annotation to duplicate it.");
+    return;
+  }
+
+  const copy = cloneAnnotations([annotations[selectedIndex]])[0];
+  if (copy.type === "arrow") {
+    copy.x1 += 20;
+    copy.y1 += 20;
+    copy.x2 += 20;
+    copy.y2 += 20;
+  } else {
+    copy.x += 20;
+    copy.y += 20;
+  }
+  annotations.push(copy);
+  selectedIndex = annotations.length - 1;
+  commitHistory();
+  redraw();
+  setStatus("Annotation duplicated.");
+}
+
+function commitHistory() {
+  historyStack.push(cloneAnnotations(annotations));
+  if (historyStack.length > HISTORY_LIMIT) {
+    historyStack.shift();
+  }
+  redoStack.length = 0; // any new edit invalidates the redo history
 }
 
 function cloneAnnotations(list) {
@@ -335,6 +769,108 @@ async function copyImage() {
 
 function setStatus(message) {
   statusElement.textContent = message;
+}
+
+function fitToWidth() {
+  // .canvas-area horizontal padding is 28px per side; .canvas-wrap adds 18px per side.
+  const available = canvasArea.clientWidth - 92;
+  const target = Math.max(1, Math.min(available, captureImage.width));
+  setZoom(Math.min(1, target / captureImage.width));
+  canvasArea.scrollLeft = 0;
+  canvasArea.scrollTop = 0;
+}
+
+function setZoom(value) {
+  zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, value));
+  canvas.style.width = `${Math.round(captureImage.width * zoom)}px`;
+  canvas.style.height = `${Math.round(captureImage.height * zoom)}px`;
+  zoomLabel.textContent = `${Math.round(zoom * 100)}%`;
+}
+
+function onWheel(event) {
+  event.preventDefault();
+
+  // Keep the canvas point under the cursor fixed while zooming (zoom-to-cursor).
+  // After zoom, the point at relative position cx must stay under the cursor, so the
+  // scroll offset must change by cx * (displayWidth_after - displayWidth_before).
+  const rect = canvas.getBoundingClientRect();
+  const cx = (event.clientX - rect.left) / rect.width;
+  const cy = (event.clientY - rect.top) / rect.height;
+  const factor = event.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
+  setZoom(zoom * factor);
+  const nextRect = canvas.getBoundingClientRect();
+  canvasArea.scrollLeft += cx * (nextRect.width - rect.width);
+  canvasArea.scrollTop += cy * (nextRect.height - rect.height);
+}
+
+function startPan(event) {
+  if (event.button === 1) {
+    event.preventDefault(); // block middle-click autoscroll
+  }
+  panning = true;
+  panStart = {
+    x: event.clientX,
+    y: event.clientY,
+    scrollLeft: canvasArea.scrollLeft,
+    scrollTop: canvasArea.scrollTop
+  };
+  canvasWrap.classList.add("panning");
+}
+
+function onKeyDown(event) {
+  const activeTag = document.activeElement?.tagName || "";
+  if (activeTag === "TEXTAREA" || activeTag === "INPUT") {
+    return; // typing in the text editor — browser handles its own keys
+  }
+
+  if (event.code === "Escape" && selectedIndex >= 0) {
+    selectedIndex = -1;
+    redraw();
+    setStatus("Deselected.");
+    return;
+  }
+
+  if (event.key === "Delete" || event.key === "Backspace") {
+    deleteSelected();
+    return;
+  }
+
+  if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "z") {
+    event.preventDefault();
+    redo();
+    return;
+  }
+
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+    event.preventDefault();
+    undo();
+    return;
+  }
+
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "d") {
+    event.preventDefault();
+    duplicateSelected();
+    return;
+  }
+
+  if (event.code !== "Space") {
+    return;
+  }
+
+  spaceDown = true;
+  canvasWrap.classList.add("panning");
+  event.preventDefault();
+}
+
+function onKeyUp(event) {
+  if (event.code !== "Space") {
+    return;
+  }
+
+  spaceDown = false;
+  if (!panning) {
+    canvasWrap.classList.remove("panning");
+  }
 }
 
 function getCanvasPoint(event) {

@@ -1,5 +1,7 @@
 const statusElement = document.querySelector("#status");
 const buttons = [...document.querySelectorAll(".capture-button")];
+const delaySelect = document.querySelector("#delaySelect");
+let countdownTimer = null;
 
 function setStatus(message, isError = false) {
   statusElement.textContent = message;
@@ -7,6 +9,7 @@ function setStatus(message, isError = false) {
 }
 
 async function capture(mode) {
+  const delayMs = parseInt(delaySelect.value, 10) || 0;
   setStatus(`Starting ${mode} capture...`);
   buttons.forEach((button) => {
     button.disabled = true;
@@ -23,16 +26,24 @@ async function capture(mode) {
       type: "START_CAPTURE",
       mode,
       tabId: tab.id,
-      windowId: tab.windowId
+      windowId: tab.windowId,
+      delayMs
     });
 
     if (!response?.ok) {
       throw new Error(response?.error || "Capture failed.");
     }
 
-    setStatus(mode === "selected" ? "Select an area on the page." : "Opening editor...");
+    if (mode === "selected") {
+      setStatus("Select an area on the page.");
+      return;
+    }
 
-    if (mode !== "selected") {
+    if (delayMs > 0) {
+      // Keep the popup open to show the countdown; the timer itself is
+      // background-owned, so closing the popup early still fires the capture.
+      runCountdown(delayMs);
+    } else {
       window.close();
     }
   } catch (error) {
@@ -41,6 +52,19 @@ async function capture(mode) {
       button.disabled = false;
     });
   }
+}
+
+function runCountdown(totalMs) {
+  const startedAt = Date.now();
+  countdownTimer = setInterval(() => {
+    const remaining = Math.max(0, Math.ceil((totalMs - (Date.now() - startedAt)) / 1000));
+    setStatus(remaining > 0 ? `Capturing in ${remaining}s…` : "Capturing…");
+    if (remaining === 0) {
+      clearInterval(countdownTimer);
+      countdownTimer = null;
+      window.close();
+    }
+  }, 100);
 }
 
 buttons.forEach((button) => {

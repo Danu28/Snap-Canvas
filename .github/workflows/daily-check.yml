@@ -31,7 +31,11 @@ jobs:
       - name: Check JavaScript syntax
         shell: bash
         run: |
-          node --check background.js
-          node --check popup.js
-          node --check selection.js
-          node --check editor.js
+          # Parse as .mjs (strict ESM): plain `node --check` runs sloppy mode and
+          # silently accepts duplicate function declarations, which are a
+          # SyntaxError in modules (editor.js, popup.js, background.js).
+          for f in background.js popup.js selection.js element-picker.js editor.js; do
+            cp "$f" "/tmp/${f%.js}.mjs"
+            node --check "/tmp/${f%.js}.mjs"
+            rm -f "/tmp/${f%.js}.mjs"
+          done

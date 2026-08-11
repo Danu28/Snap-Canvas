@@ -123,6 +123,66 @@ body {
   box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--text);
 }
 
+.zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.font-size-select {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 14px;
+  background: var(--panel-strong);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.text-editor-overlay {
+  position: fixed;
+  z-index: 50;
+  width: 260px;
+  min-height: 60px;
+  padding: 4px 6px;
+  border: 2px solid var(--accent);
+  border-radius: 8px;
+  background: #fff;
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 700;
+  line-height: 1.2;
+  resize: both;
+  overflow: auto;
+  box-shadow: 0 8px 20px rgba(55, 33, 12, 0.18);
+  outline: none;
+}
+
+.zoom-button {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  background: var(--panel-strong);
+  color: var(--text);
+  transition: transform 160ms ease, border-color 160ms ease;
+}
+
+.zoom-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(216, 88, 35, 0.44);
+}
+
+.zoom-label {
+  min-width: 44px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+}
+
 .actions {
   display: grid;
   gap: 10px;
@@ -160,8 +220,11 @@ body {
 
 #editorCanvas {
   display: block;
-  max-width: 100%;
   cursor: crosshair;
+}
+
+.canvas-wrap.panning {
+  cursor: grabbing;
 }
 
 @media (max-width: 960px) {

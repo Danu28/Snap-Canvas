@@ -7,21 +7,15 @@ SnapCanvas is a Chrome extension for capturing and annotating screenshots of the
 - Full page screenshot capture with scroll-and-stitch
 - Visible area screenshot capture
 - Selected area screenshot capture
+- Element capture: right-click any page element → **Capture element**
+- Delayed capture: 3 / 5 / 10 second countdown for hover and dropdown states (runs even if the popup closes)
 - Keyboard shortcuts: `Ctrl+Shift+1` (full page), `Ctrl+Shift+2` (visible area), `Ctrl+Shift+3` (selected area)
-- Annotation tools: rectangle, arrow, movable text
+- Annotation tools: rectangle, arrow, movable text, select
+  - Select tool: move, resize (rectangle corners, arrow endpoints), delete (`Del`), duplicate (`Ctrl+D`)
+  - Inline text editing on the canvas (no browser prompt), multi-line, font size 14 / 22 / 32 px
+- Editor zoom & pan: fit-to-width, mouse-wheel zoom (0.25x–8x), space-drag or middle-drag to pan
 - Colors: green (default), red, blue, orange, black, white (fixed swatches)
-- Undo, copy image, and PNG download
-
-## Project Name
-
-Suggested repository name: `snapcanvas`
-
-## Load Locally
-
-1. Open `chrome://extensions`
-2. Enable Developer mode
-3. Click **Load unpacked**
-4. Select this project folder
+- Undo / redo (`Ctrl+Z`, `Ctrl+Shift+Z`), copy image, and PNG download
 
 ## Main Files
 
@@ -31,6 +25,7 @@ Suggested repository name: `snapcanvas`
 - `popup.css`
 - `popup.js`
 - `selection.js`
+- `element-picker.js`
 - `editor.html`
 - `editor.css`
 - `editor.js`
