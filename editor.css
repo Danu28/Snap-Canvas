@@ -171,16 +171,54 @@ body {
   gap: 8px;
 }
 
-.font-size-select {
+.size-stepper {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.size-button {
+  flex: 0 0 auto;
+  width: 40px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  background: var(--panel-strong);
+  color: var(--text);
+  transition: transform 160ms ease, border-color 160ms ease;
+}
+
+.size-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: rgba(216, 88, 35, 0.44);
+}
+
+.size-input {
+  flex: 1 1 auto;
   width: 100%;
+  min-width: 0;
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 10px 12px;
   font: inherit;
   font-size: 14px;
+  text-align: center;
   background: var(--panel-strong);
   color: var(--text);
-  cursor: pointer;
+}
+
+.size-input::-webkit-outer-spin-button,
+.size-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.size-input {
+  -moz-appearance: textfield;
+  appearance: textfield;
 }
 
 .text-editor-overlay {

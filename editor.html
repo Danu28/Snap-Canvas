@@ -47,11 +47,11 @@
 
       <div class="field">
         <span>Text size</span>
-        <select id="fontSizeSelect" class="font-size-select" aria-label="Text size">
-          <option value="14">14 px</option>
-          <option value="22" selected>22 px</option>
-          <option value="32">32 px</option>
-        </select>
+        <div class="size-stepper" role="group" aria-label="Text size">
+          <button id="fontSizeDec" class="size-button" type="button" aria-label="Decrease text size">−</button>
+          <input id="fontSizeInput" class="size-input" type="number" inputmode="numeric" min="8" max="200" step="2" value="22" aria-label="Text size in pixels">
+          <button id="fontSizeInc" class="size-button" type="button" aria-label="Increase text size">+</button>
+        </div>
       </div>
 
       <div class="zoom-controls" role="group" aria-label="Zoom">

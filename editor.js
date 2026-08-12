@@ -1,6 +1,8 @@
 const STORAGE_KEY = "latestCapture";
 const STROKE = 4;
 const FONT_SIZE = 22;
+const FONT_MIN = 8;
+const FONT_MAX = 200;
 const ZOOM_MIN = 0.25;
 const ZOOM_MAX = 8;
 const ZOOM_STEP = 1.25;
@@ -14,7 +16,9 @@ const zoomLabel = document.querySelector("#zoomLabel");
 const zoomInButton = document.querySelector("#zoomInButton");
 const zoomOutButton = document.querySelector("#zoomOutButton");
 const fitButton = document.querySelector("#fitButton");
-const fontSizeSelect = document.querySelector("#fontSizeSelect");
+const fontSizeInput = document.querySelector("#fontSizeInput");
+const fontSizeDec = document.querySelector("#fontSizeDec");
+const fontSizeInc = document.querySelector("#fontSizeInc");
 const context = canvas.getContext("2d");
 const statusElement = document.querySelector("#editorStatus");
 const toolButtons = [...document.querySelectorAll(".tool-button")];
@@ -123,12 +127,15 @@ function bindEvents() {
   zoomInButton.addEventListener("click", () => setZoom(zoom * ZOOM_STEP));
   zoomOutButton.addEventListener("click", () => setZoom(zoom / ZOOM_STEP));
   fitButton.addEventListener("click", fitToWidth);
-  canvasArea.addEventListener("wheel", onWheel, { passive: false });
   window.addEventListener("keydown", onKeyDown);
   window.addEventListener("keyup", onKeyUp);
-  fontSizeSelect.addEventListener("change", () => {
-    activeFontSize = parseInt(fontSizeSelect.value, 10) || FONT_SIZE;
+  fontSizeDec.addEventListener("click", () => applyFontSize(activeFontSize - 2));
+  fontSizeInc.addEventListener("click", () => applyFontSize(activeFontSize + 2));
+  fontSizeInput.addEventListener("input", () => {
+    const value = parseInt(fontSizeInput.value, 10);
+    if (Number.isFinite(value)) activeFontSize = value;
   });
+  fontSizeInput.addEventListener("change", () => applyFontSize(fontSizeInput.value));
 }
 
 function onPointerDown(event) {
@@ -838,6 +845,16 @@ function updateActionStates() {
   clearButton.disabled = annotations.length === 0;
 }
 
+// Read a font-size value (px) clamped to [FONT_MIN, FONT_MAX]; keeps the input
+// box and the text tool in sync. Empty/invalid input falls back to the current size.
+function applyFontSize(value) {
+  let size = parseInt(value, 10);
+  if (!Number.isFinite(size)) size = activeFontSize || FONT_SIZE;
+  size = Math.min(FONT_MAX, Math.max(FONT_MIN, size));
+  activeFontSize = size;
+  fontSizeInput.value = String(size);
+}
+
 function fitToWidth() {
   // Fit the canvas-wrap's full box (wrap padding+border, plus area padding —
   // clientWidth already includes area padding) into the area's content box.
@@ -862,22 +879,6 @@ function setZoom(value) {
   canvas.style.width = `${Math.round(captureImage.width * zoom)}px`;
   canvas.style.height = `${Math.round(captureImage.height * zoom)}px`;
   zoomLabel.textContent = `${Math.round(zoom * 100)}%`;
-}
-
-function onWheel(event) {
-  event.preventDefault();
-
-  // Keep the canvas point under the cursor fixed while zooming (zoom-to-cursor).
-  // After zoom, the point at relative position cx must stay under the cursor, so the
-  // scroll offset must change by cx * (displayWidth_after - displayWidth_before).
-  const rect = canvas.getBoundingClientRect();
-  const cx = (event.clientX - rect.left) / rect.width;
-  const cy = (event.clientY - rect.top) / rect.height;
-  const factor = event.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
-  setZoom(zoom * factor);
-  const nextRect = canvas.getBoundingClientRect();
-  canvasArea.scrollLeft += cx * (nextRect.width - rect.width);
-  canvasArea.scrollTop += cy * (nextRect.height - rect.height);
 }
 
 function startPan(event) {
