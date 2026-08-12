@@ -30,6 +30,9 @@ Plan (memory/plan.md) is complete; this is new scope approved via the lightweigh
 
 Measured: H4 wall 4789 → 4210-4213 ms (throttle padding was ~70% of capture wall time and was the dominant per-tile cost; settle 120 ms + double-rAF retained). Noted out of scope: editor double-decode of the stored dataUrl (loadImage + photo.src) — editor-load speed, different file.
 
+- [x] S4. Editor fit-to-width overflow at browser 100% zoom (user report: "Editor breaks at browser 100% zoom") — done 2026-08-12  (verify: fitToWidth now measures real wrap/area chrome (padding+border via getComputedStyle) instead of the hardcoded −92 which omitted the wrap border → 2px horizontal overflow → scrollbar appeared exactly at the 100%-zoom two-column layout. Verified overflowX=0 at 1400/1200/1000/900px windows AND at faithful browser-zoom emulation 80/100/125% (innerWidth=device/z, dpr=z); pointer→buffer math exact at all zooms (annotation lands at expected buffer coords); photo/canvas layer Δ=0; 0 page errors. H1 golden re-recorded (fit 788→786 CSS changes harness moveDx float coords by 0.1px → resize AA pixels; pure-annotation steps rect/arrow/text bit-match old golden, export path unchanged; 11/11 PASS on re-record). NOT reproduced: any functional break at 100% zoom — editor geometry is zoom-invariant; the scrollbar was the only 100%-exclusive defect found. If the user's symptom is something else (blank canvas / capture failure / misalignment), needs their specifics. — passed))
+  files: editor.js, harness/golden-editor.json, harness/zoom-repro.mjs (new), harness/zoom-report.json (new)
+
 ## Previous scope (completed & verified 2026-08-11)
 
 Plan: 5 ranked features + storage quota fix (archived in git 1374ae7; superseded by perf plan above)

@@ -1,0 +1,391 @@
+{
+  "zooms": [
+    {
+      "zoom": 0.8,
+      "status": "Ready to annotate your full capture. (v1.4.0)",
+      "geo": {
+        "innerWidth": 1500,
+        "innerHeight": 1000,
+        "dpr": 0.800000011920929,
+        "areaClientWidth": 1180,
+        "areaScrollWidth": 1180,
+        "fitLabel": "100%",
+        "canvasCss": {
+          "w": "800px",
+          "h": "600px"
+        },
+        "canvasBuf": {
+          "w": 800,
+          "h": 600
+        },
+        "rect": {
+          "left": 367,
+          "top": 47,
+          "width": 800,
+          "height": 600
+        },
+        "photoRect": {
+          "left": 367,
+          "top": 47,
+          "width": 800,
+          "height": 600
+        },
+        "stackRect": {
+          "left": 367,
+          "top": 47,
+          "width": 800,
+          "height": 600
+        },
+        "stackOverflowX": 0,
+        "stackOverflowY": 0
+      },
+      "alignment": {
+        "photoVsCanvasDelta": {
+          "left": 0,
+          "top": 0,
+          "width": 0,
+          "height": 0
+        },
+        "photoVsCanvasAbs": {
+          "dx": 0,
+          "dy": 0,
+          "dw": 0,
+          "dh": 0
+        }
+      },
+      "strokeRects": [
+        [
+          160,
+          120,
+          40,
+          22.5
+        ],
+        [
+          160,
+          120,
+          80,
+          45
+        ],
+        [
+          160,
+          120,
+          120,
+          67.5
+        ],
+        [
+          160,
+          120,
+          160,
+          90
+        ],
+        [
+          160,
+          120,
+          200,
+          112.5
+        ],
+        [
+          160,
+          120,
+          240,
+          135
+        ],
+        [
+          160,
+          120,
+          280,
+          157.5
+        ],
+        [
+          160,
+          120,
+          320,
+          180
+        ],
+        [
+          160,
+          120,
+          320,
+          180
+        ]
+      ],
+      "pointerAccuracy": {
+        "expected": {
+          "x": 160,
+          "y": 120,
+          "width": 320,
+          "height": 180
+        },
+        "actual": {
+          "x": 160,
+          "y": 120,
+          "width": 320,
+          "height": 180
+        },
+        "dx": 0,
+        "dy": 0,
+        "dw": 0,
+        "dh": 0
+      },
+      "pageErrors": []
+    },
+    {
+      "zoom": 1,
+      "status": "Ready to annotate your full capture. (v1.4.0)",
+      "geo": {
+        "innerWidth": 1200,
+        "innerHeight": 800,
+        "dpr": 1,
+        "areaClientWidth": 880,
+        "areaScrollWidth": 880,
+        "fitLabel": "98%",
+        "canvasCss": {
+          "w": "786px",
+          "h": "590px"
+        },
+        "canvasBuf": {
+          "w": 800,
+          "h": 600
+        },
+        "rect": {
+          "left": 367,
+          "top": 47,
+          "width": 786,
+          "height": 590
+        },
+        "photoRect": {
+          "left": 367,
+          "top": 47,
+          "width": 786,
+          "height": 590
+        },
+        "stackRect": {
+          "left": 367,
+          "top": 47,
+          "width": 786,
+          "height": 590
+        },
+        "stackOverflowX": 0,
+        "stackOverflowY": 0
+      },
+      "alignment": {
+        "photoVsCanvasDelta": {
+          "left": 0,
+          "top": 0,
+          "width": 0,
+          "height": 0
+        },
+        "photoVsCanvasAbs": {
+          "dx": 0,
+          "dy": 0,
+          "dw": 0,
+          "dh": 0
+        }
+      },
+      "strokeRects": [
+        [
+          160.0000124244593,
+          120,
+          39.9999875755407,
+          22.5
+        ],
+        [
+          160.0000124244593,
+          120,
+          79.9999751510814,
+          45
+        ],
+        [
+          160.0000124244593,
+          120,
+          119.9999627266221,
+          67.5
+        ],
+        [
+          160.0000124244593,
+          120,
+          160.0000124244593,
+          90
+        ],
+        [
+          160.0000124244593,
+          120,
+          199.99999999999997,
+          112.5
+        ],
+        [
+          160.0000124244593,
+          120,
+          239.9999875755407,
+          135
+        ],
+        [
+          160.0000124244593,
+          120,
+          279.99997515108146,
+          157.5
+        ],
+        [
+          160.0000124244593,
+          120,
+          319.99996272662213,
+          180
+        ],
+        [
+          160.0000124244593,
+          120,
+          319.99996272662213,
+          180
+        ]
+      ],
+      "pointerAccuracy": {
+        "expected": {
+          "x": 160,
+          "y": 120,
+          "width": 320,
+          "height": 180
+        },
+        "actual": {
+          "x": 160,
+          "y": 120,
+          "width": 320,
+          "height": 180
+        },
+        "dx": 0,
+        "dy": 0,
+        "dw": 0,
+        "dh": 0
+      },
+      "pageErrors": []
+    },
+    {
+      "zoom": 1.25,
+      "status": "Ready to annotate your full capture. (v1.4.0)",
+      "geo": {
+        "innerWidth": 960,
+        "innerHeight": 640,
+        "dpr": 1.25,
+        "areaClientWidth": 945,
+        "areaScrollWidth": 945,
+        "fitLabel": "100%",
+        "canvasCss": {
+          "w": "800px",
+          "h": "600px"
+        },
+        "canvasBuf": {
+          "w": 800,
+          "h": 600
+        },
+        "rect": {
+          "left": 37,
+          "top": 853.84375,
+          "width": 800,
+          "height": 600
+        },
+        "photoRect": {
+          "left": 37,
+          "top": 853.84375,
+          "width": 800,
+          "height": 600
+        },
+        "stackRect": {
+          "left": 37,
+          "top": 853.84375,
+          "width": 800,
+          "height": 600
+        },
+        "stackOverflowX": 0,
+        "stackOverflowY": 0
+      },
+      "alignment": {
+        "photoVsCanvasDelta": {
+          "left": 0,
+          "top": 0,
+          "width": 0,
+          "height": 0
+        },
+        "photoVsCanvasAbs": {
+          "dx": 0,
+          "dy": 0,
+          "dw": 0,
+          "dh": 0
+        }
+      },
+      "strokeRects": [
+        [
+          160,
+          120,
+          40,
+          22.5
+        ],
+        [
+          160,
+          120,
+          80,
+          45
+        ],
+        [
+          160,
+          120,
+          120,
+          67.5
+        ],
+        [
+          160,
+          120,
+          160,
+          90
+        ],
+        [
+          160,
+          120,
+          200,
+          112.5
+        ],
+        [
+          160,
+          120,
+          240,
+          135
+        ],
+        [
+          160,
+          120,
+          280,
+          157.5
+        ],
+        [
+          160,
+          120,
+          320,
+          180
+        ],
+        [
+          160,
+          120,
+          320,
+          180
+        ]
+      ],
+      "pointerAccuracy": {
+        "expected": {
+          "x": 160,
+          "y": 120,
+          "width": 320,
+          "height": 180
+        },
+        "actual": {
+          "x": 160,
+          "y": 120,
+          "width": 320,
+          "height": 180
+        },
+        "dx": 0,
+        "dy": 0,
+        "dw": 0,
+        "dh": 0
+      },
+      "pageErrors": []
+    }
+  ]
+}

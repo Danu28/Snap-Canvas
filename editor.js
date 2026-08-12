@@ -808,9 +808,19 @@ function setStatus(message) {
 }
 
 function fitToWidth() {
-  // .canvas-area horizontal padding is 28px per side; .canvas-wrap adds 18px per side.
-  const available = canvasArea.clientWidth - 92;
-  const target = Math.max(1, Math.min(available, captureImage.width));
+  // Fit the canvas-wrap's full box (wrap padding+border, plus area padding —
+  // clientWidth already includes area padding) into the area's content box.
+  // Measured, not hardcoded: the old constant (92) omitted the wrap border,
+  // leaving a 2px horizontal overflow (scrollbar) exactly when fit lands just
+  // below 1:1 — the browser-100%-zoom layout.
+  const wrapStyle = getComputedStyle(canvasWrap);
+  const areaStyle = getComputedStyle(canvasArea);
+  const sideChrome =
+    parseFloat(wrapStyle.paddingLeft) + parseFloat(wrapStyle.paddingRight) +
+    parseFloat(wrapStyle.borderLeftWidth) + parseFloat(wrapStyle.borderRightWidth) +
+    parseFloat(areaStyle.paddingLeft) + parseFloat(areaStyle.paddingRight);
+  const available = Math.max(1, canvasArea.clientWidth - sideChrome);
+  const target = Math.min(available, captureImage.width);
   setZoom(Math.min(1, target / captureImage.width));
   canvasArea.scrollLeft = 0;
   canvasArea.scrollTop = 0;
