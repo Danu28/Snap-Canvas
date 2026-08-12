@@ -118,3 +118,13 @@ Impact: User could not see status feedback; commands appeared dead.
 
 Next step: resolved by warning-kind toasts + persistent widget + footer status
 (already shipped); fuzzy matching prevents the silent-fallthrough confusion.
+
+## [2026-08-11] Fixed-element scan: no measurable timing win — keep or revert? — Question
+
+Status: Open
+
+Details: T1 refactored the full-page capture fixed-element scan (live HTMLCollection + index loop + single explicit recalc) for performance. Equivalence is fully verified (H2: 1600/1600 hidden elements identical, metrics identical), but the timing on the synthetic 20k-element page is within noise (median 42.0ms old vs 46.0ms new; x0.91–1.07 across runs). Per-node getComputedStyle dominates and is irreducible without changing semantics.
+
+Impact: None on correctness or features. The capture-side wins that matter are T2 (memory) and T3 (settle).
+
+Next step: User decision — keep the cleaner, equivalence-verified scan, or revert T1 (one-line-ish git revert of that hunk). Either choice is safe; no re-verification needed if reverted (H2 would still pass — it tests equivalence, not implementation).

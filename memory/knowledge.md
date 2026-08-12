@@ -83,6 +83,23 @@ captured as their box.
 
 Removed: popup button for element capture (context menu only — one surface).
 
+## Gotcha: willReadFrequently changes anti-aliasing rounding (editor export bit-identity)
+
+Chrome's canvas rasterizer (SwiftShader in headless, GPU elsewhere) selects a different anti-aliasing rounding path based on the `willReadFrequently` context hint. Verified 2026-08-11: `strokeRect` at a sub-pixel position over a photo produces pixels differing by ±1 (one channel) at anti-aliased edges when drawn on a `willReadFrequently: true` context vs a plain context — and the layer-split composite (photo img + annotation canvas) differs from a single-canvas render by ±1 at those same edges (35 px per rect corner region in the isolation test). Consequence: the editor's `renderComposite()` (download/copy export) MUST re-render photo + annotations in a `willReadFrequently: true` context to reproduce the pre-split output bit-for-bit — verified hash-equal (3591490414) to the old `canvas.toDataURL`. The on-screen display composite keeps the ±1 (invisible); the export path is bit-identical.
+
+## Gotcha: CDP wall time is roundtrip-dominated — measure editor work in-page
+
+Timing real CDP mouse moves (Input.dispatchMouseEvent) includes ~15ms/event of CDP round-trip latency, swamping the editor's own redraw cost (816ms/50 moves was mostly latency). To measure actual editor work: do one real pointerdown (creates the active pointer), then dispatch synthetic PointerEvents in-page with matching pointerId and time with performance.now — 200 moves measure 3.6ms new vs 2430.9ms old on a 2400×3600 canvas. Synthetic pointerdown without a real active pointer throws NotFoundError from setPointerCapture — always pair synthetic moves with a real pointerdown.
+
+## SnapCanvas perf-relevant facts (2026-08-11, perf plan)
+
+- Editor per-pointermove cost was dominated by `redraw()` = full-canvas clearRect + drawImage(captureImage) + all annotations + handles (editor.js). Photo-layer split (stacked `#editorPhoto` img under the canvas) removes the photo draw from every redraw; download/copy go through `renderComposite()` instead of canvas.toDataURL directly.
+- `getContext("2d", { willReadFrequently: true })` forces a CPU-backed canvas in Chrome. The editor never calls getImageData (only measureText / toDataURL / toBlob) → the hint is pure cost on hot redraws; removed.
+- `measureText` in hitTestText/drawHandles is deterministic per (value, fontSize) — cacheable; zoom-independent because metrics are canvas-space.
+- background.js capture: fixed-element scan (`querySelectorAll("*")` + getComputedStyle per node) runs inside the capture critical path; tiles are stitched by `Promise.all` decode (unbounded peak memory) — now a 4-worker pool with `bitmap.close()` after each draw.
+- Chrome API limit: `captureVisibleTab` max ~2 calls/sec → CAPTURE_THROTTLE_MS 600 is the floor per tile; the 200 ms scroll-settle (SCROLL_SETTLE_MS) was reduced to 120 ms — double-rAF paint wait retained.
+- Canvas photo layer approach chosen over dirty-region redraw: no bbox/overlap math, no ghosting risk, memory unchanged. Data-url-in-CSS background-image was rejected (browser data-URL limits on >10 MB captures); the photo is an <img> element instead.
+
 ## SnapCanvas architecture facts (for builder/verifier sessions)
 
 - MV3 extension, plain JS, no build step; files: manifest.json, background.js (capture
@@ -108,3 +125,10 @@ Removed: popup button for element capture (context menu only — one surface).
 - `top_p` camelCase note: Google/Vertex APIs expect `generationConfig.topP`;
   `top_p` at top level only works for OpenAI-compatible endpoints (user is on
   DeepSeek, so fine).
+
+## Capture quality/speed facts (2026-08-12, small scope)
+
+- Throttle padding dominates full-page capture wall time: the 600 ms interval was ~70% of an 8-tile capture's wall time (settle 120 + double-rAF + capture ≈ 180 ms/tile, then padded to the interval). Chrome's floor is 2 calls/sec = 500 ms; 520 keeps a small margin + the MAX_CAPTURE retry backstop. Measured 4789 → 4210 ms (-12.1%) on the H4 harness page.
+- Real-Chrome `html { scroll-behavior: smooth }` makes `window.scrollTo` ANIMATE → full-page tiles can be captured mid-scroll (torn seams). headless Chrome does NOT animate programmatic smooth scroll (verified: scrollY is final immediately), so the fix (force `scroll-behavior: auto !important` in the injected capture style) is only mechanism-verifiable in headless — assert computed scroll-behavior at capture time, not pixels.
+- Lazy/async imgs entering the viewport mid-capture get captured blank. The wait (≤700 ms, 50 ms poll) checks viewport-visible `img.complete`. SPEC GOTCHA: an `<img>` WITHOUT a src has `complete === true` (treated as broken) — a no-src placeholder cannot simulate a lazy load; model it with a held Network-intercepted request (`Network.setRequestInterception` + `continueInterceptedRequest` released mid-capture).
+- Harness rigging gotchas: (1) git-bash rewrites a `/foo` env value into a Windows path (`C:/Program Files/Git/foo`) — pass `./relative` URLs instead; (2) `\"` inside a template-literal-embedded harness init collapses to `"` → the init becomes invalid JS and `Page.addScriptToEvaluateOnNewDocument` fails SILENTLY — symptoms look like races (`__pipeline.listener is not a function`); use single quotes inside embedded init code; (3) `stopChrome` on win32 must `taskkill /pid <pid> /T /F` — SIGKILL only kills the parent and orphaned children keep the CDP port bound, letting the next run attach to a stale Chrome.

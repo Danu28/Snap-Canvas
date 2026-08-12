@@ -7,6 +7,7 @@ const ZOOM_STEP = 1.25;
 const HISTORY_LIMIT = 50;
 
 const canvas = document.querySelector("#editorCanvas");
+const photo = document.querySelector("#editorPhoto");
 const canvasArea = document.querySelector(".canvas-area");
 const canvasWrap = document.querySelector(".canvas-wrap");
 const zoomLabel = document.querySelector("#zoomLabel");
@@ -14,7 +15,7 @@ const zoomInButton = document.querySelector("#zoomInButton");
 const zoomOutButton = document.querySelector("#zoomOutButton");
 const fitButton = document.querySelector("#fitButton");
 const fontSizeSelect = document.querySelector("#fontSizeSelect");
-const context = canvas.getContext("2d", { willReadFrequently: true });
+const context = canvas.getContext("2d");
 const statusElement = document.querySelector("#editorStatus");
 const toolButtons = [...document.querySelectorAll(".tool-button")];
 const colorSwatches = [...document.querySelectorAll(".color-swatch")];
@@ -43,6 +44,9 @@ let textEditorMeta = null;
 let selectedIndex = -1;
 let dragTarget = -1;
 let resizeState = null;
+// measureText widths are deterministic per (value, fontSize) and zoom-independent
+// (canvas-space metrics) — cached so select-mode pointermoves don't re-shape text.
+const textWidthCache = new Map();
 
 colorSwatches.forEach((btn) => {
   btn.style.setProperty("--swatch", btn.dataset.color);
@@ -63,6 +67,11 @@ async function initialize() {
   captureImage = await loadImage(capture.dataUrl);
   canvas.width = captureImage.width;
   canvas.height = captureImage.height;
+  // The photo lives in the <img> layer (browser-decoded once); the canvas
+  // buffer holds only annotations, so per-move redraws never re-composite it.
+  if (photo) {
+    photo.src = capture.dataUrl;
+  }
   fitToWidth();
   annotations = [];
   historyStack = [[]];
@@ -375,13 +384,23 @@ function closeTextEditor(value) {
   }
 }
 
+function measureTextWidth(value, fontSize, ctx = context) {
+  const key = `${fontSize}:${value}`;
+  let width = textWidthCache.get(key);
+  if (width === undefined) {
+    ctx.font = `700 ${fontSize}px Georgia, serif`;
+    width = ctx.measureText(value).width;
+    textWidthCache.set(key, width);
+  }
+  return width;
+}
+
 function hitTestText(point) {
   for (let i = annotations.length - 1; i >= 0; i -= 1) {
     const a = annotations[i];
     if (a.type !== "text") continue;
     const fontSize = a.fontSize || FONT_SIZE;
-    context.font = `700 ${fontSize}px Georgia, serif`;
-    const width = context.measureText(a.value).width;
+    const width = measureTextWidth(a.value, fontSize);
     const height = fontSize * 1.2;
     if (
       point.x >= a.x - 4 &&
@@ -504,15 +523,15 @@ function applyResize(state, point) {
   Object.assign(a, { x: nextX, y: nextY, width: nextWidth, height: nextHeight });
 }
 
-function drawHandles() {
+function drawHandles(ctx = context) {
   if (selectedIndex < 0) {
     return;
   }
 
   const a = annotations[selectedIndex];
-  context.strokeStyle = "#ffb300";
-  context.fillStyle = "#fff";
-  context.lineWidth = 2;
+  ctx.strokeStyle = "#ffb300";
+  ctx.fillStyle = "#fff";
+  ctx.lineWidth = 2;
 
   if (a.type === "rectangle") {
     const corners = [
@@ -522,15 +541,14 @@ function drawHandles() {
       [a.x + a.width, a.y + a.height]
     ];
     for (const [hx, hy] of corners) {
-      drawHandleSquare(hx, hy);
+      drawHandleSquare(hx, hy, ctx);
     }
   } else if (a.type === "arrow") {
-    drawHandleCircle(a.x1, a.y1);
-    drawHandleCircle(a.x2, a.y2);
+    drawHandleCircle(a.x1, a.y1, ctx);
+    drawHandleCircle(a.x2, a.y2, ctx);
   } else if (a.type === "text") {
     const fontSize = a.fontSize || FONT_SIZE;
-    context.font = `700 ${fontSize}px Georgia, serif`;
-    const width = context.measureText(a.value).width;
+    const width = measureTextWidth(a.value, fontSize, ctx);
     const height = fontSize * 1.2;
     const corners = [
       [a.x - 2, a.y - 2],
@@ -539,33 +557,51 @@ function drawHandles() {
       [a.x + width + 2, a.y + height + 2]
     ];
     for (const [hx, hy] of corners) {
-      drawHandleSquare(hx, hy);
+      drawHandleSquare(hx, hy, ctx);
     }
   }
 }
 
-function drawHandleSquare(x, y) {
-  context.beginPath();
-  context.rect(x - 5, y - 5, 10, 10);
-  context.fill();
-  context.stroke();
+function drawHandleSquare(x, y, ctx = context) {
+  ctx.beginPath();
+  ctx.rect(x - 5, y - 5, 10, 10);
+  ctx.fill();
+  ctx.stroke();
 }
 
-function drawHandleCircle(x, y) {
-  context.beginPath();
-  context.arc(x, y, 6, 0, Math.PI * 2);
-  context.fill();
-  context.stroke();
+function drawHandleCircle(x, y, ctx = context) {
+  ctx.beginPath();
+  ctx.arc(x, y, 6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
 }
 
 function redraw() {
   context.imageSmoothingEnabled = false;
   context.clearRect(0, 0, canvas.width, canvas.height);
-  context.drawImage(captureImage, 0, 0);
   for (const a of annotations) {
     drawAnnotation(a);
   }
   drawHandles();
+}
+
+// Full composite (photo + annotations) for download/copy only — rare,
+// user-triggered ops; the interactive path never builds it. Re-renders in a
+// willReadFrequently context: that hint selects a different anti-aliasing
+// rounding path, and matching the original editor context keeps exported
+// pixels bit-identical to the pre-layer-split output.
+function renderComposite() {
+  const composite = document.createElement("canvas");
+  composite.width = canvas.width;
+  composite.height = canvas.height;
+  const compositeContext = composite.getContext("2d", { willReadFrequently: true });
+  compositeContext.imageSmoothingEnabled = false;
+  compositeContext.drawImage(captureImage, 0, 0);
+  for (const a of annotations) {
+    drawAnnotation(a, compositeContext);
+  }
+  drawHandles(compositeContext);
+  return composite;
 }
 
 function drawPreview(from, to) {
@@ -591,53 +627,53 @@ function drawPreview(from, to) {
   }
 }
 
-function drawAnnotation(a) {
-  context.lineWidth = STROKE;
-  context.strokeStyle = a.color;
-  context.fillStyle = a.color;
-  context.lineCap = "round";
-  context.lineJoin = "round";
+function drawAnnotation(a, ctx = context) {
+  ctx.lineWidth = STROKE;
+  ctx.strokeStyle = a.color;
+  ctx.fillStyle = a.color;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
 
   if (a.type === "rectangle") {
-    context.strokeRect(a.x, a.y, a.width, a.height);
+    ctx.strokeRect(a.x, a.y, a.width, a.height);
     return;
   }
 
   if (a.type === "arrow") {
-    drawArrow(a.x1, a.y1, a.x2, a.y2, a.color);
+    drawArrow(a.x1, a.y1, a.x2, a.y2, a.color, ctx);
     return;
   }
 
   if (a.type === "text") {
-    context.font = `700 ${a.fontSize || FONT_SIZE}px Georgia, serif`;
-    context.textBaseline = "top";
-    context.fillText(a.value, a.x, a.y);
+    ctx.font = `700 ${a.fontSize || FONT_SIZE}px Georgia, serif`;
+    ctx.textBaseline = "top";
+    ctx.fillText(a.value, a.x, a.y);
   }
 }
 
-function drawArrow(x1, y1, x2, y2, color) {
+function drawArrow(x1, y1, x2, y2, color, ctx = context) {
   const headLength = Math.max(14, STROKE * 4);
   const angle = Math.atan2(y2 - y1, x2 - x1);
 
-  context.strokeStyle = color;
-  context.fillStyle = color;
-  context.beginPath();
-  context.moveTo(x1, y1);
-  context.lineTo(x2, y2);
-  context.stroke();
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
 
-  context.beginPath();
-  context.moveTo(x2, y2);
-  context.lineTo(
+  ctx.beginPath();
+  ctx.moveTo(x2, y2);
+  ctx.lineTo(
     x2 - headLength * Math.cos(angle - Math.PI / 7),
     y2 - headLength * Math.sin(angle - Math.PI / 7)
   );
-  context.lineTo(
+  ctx.lineTo(
     x2 - headLength * Math.cos(angle + Math.PI / 7),
     y2 - headLength * Math.sin(angle + Math.PI / 7)
   );
-  context.closePath();
-  context.fill();
+  ctx.closePath();
+  ctx.fill();
 }
 
 function undo() {
@@ -739,7 +775,7 @@ function cloneAnnotations(list) {
 
 function downloadImage() {
   const link = document.createElement("a");
-  link.href = canvas.toDataURL("image/png");
+  link.href = renderComposite().toDataURL("image/png");
   link.download = `pagesnap-${Date.now()}.png`;
   link.click();
   setStatus("PNG download started.");
@@ -753,7 +789,7 @@ async function copyImage() {
     return;
   }
 
-  const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+  const blob = await new Promise((resolve) => renderComposite().toBlob(resolve, "image/png"));
   if (!blob) {
     setStatus("Unable to generate clipboard image. Use download instead.");
     return;

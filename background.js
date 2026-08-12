@@ -1,7 +1,15 @@
 const CAPTURE_STORAGE_KEY = "latestCapture";
 const SELECTION_MESSAGE_TIMEOUT = 300;
-const CAPTURE_THROTTLE_MS = 600;
-const SCROLL_SETTLE_MS = 200;
+// Chrome's hard floor is 2 captureVisibleTab calls/sec (500 ms); 520 keeps a
+// small margin and the MAX_CAPTURE retry below is the backstop. At 600 ms the
+// throttle padding dominated full-page wall time (~70% on an 8-tile page).
+const CAPTURE_THROTTLE_MS = 520;
+const SCROLL_SETTLE_MS = 120;
+// After a scroll, images entering the viewport may still be loading; a tile
+// captured then shows blank boxes. Bounded wait (below) covers that.
+const SCROLL_IMAGE_WAIT_MS = 700;
+const IMAGE_POLL_MS = 50;
+const STITCH_CONCURRENCY = 4;
 
 let lastCaptureAt = 0;
 
@@ -146,13 +154,26 @@ async function captureFullPage(tabId, windowId) {
         const doc = document.documentElement;
         const body = document.body;
 
-        document.querySelectorAll("*").forEach((node) => {
+        // One forced style recalc up front: the per-element lookups below then
+        // hit cached style data instead of each triggering incremental recalcs.
+        void window.getComputedStyle(doc).position;
+
+        // Live collection + index loop: avoids the static NodeList allocation of
+        // querySelectorAll("*") on large pages. getComputedStyle must run per
+        // node — position can come from any stylesheet rule, so there is no safe
+        // way to skip resolution while keeping identical semantics.
+        const all = doc.getElementsByTagName("*");
+        for (let i = 0; i < all.length; i += 1) {
+          const node = all[i];
+          if (node.dataset.pagesnapHidden) {
+            continue;
+          }
           const style = window.getComputedStyle(node);
-          if ((style.position === "fixed" || style.position === "sticky") && !node.dataset.pagesnapHidden) {
+          if (style.position === "fixed" || style.position === "sticky") {
             node.dataset.pagesnapHidden = node.style.visibility || "__EMPTY__";
             node.style.visibility = "hidden";
           }
-        });
+        }
 
         return {
           fullWidth: Math.max(doc.scrollWidth, body ? body.scrollWidth : 0, doc.clientWidth),
@@ -180,6 +201,7 @@ async function captureFullPage(tabId, windowId) {
 
         await delay(SCROLL_SETTLE_MS);
         await waitForPaint(tabId);
+        await waitForViewportImages(tabId);
         const dataUrl = await captureVisibleTabThrottled(windowId);
         tiles.push({ x, y, dataUrl });
       }
@@ -261,6 +283,12 @@ async function injectScrollbarHide(tabId) {
           width: 0 !important;
           height: 0 !important;
         }
+        /* Pages with scroll-behavior:smooth make window.scrollTo animate, so a
+           tile can be captured mid-scroll (torn seam). Force instant jumps for
+           the duration of the capture; removed with the rest of this style. */
+        html {
+          scroll-behavior: auto !important;
+        }
       `;
       document.documentElement.appendChild(style);
     }
@@ -288,6 +316,36 @@ async function waitForPaint(tabId) {
   });
 }
 
+// Lazy/async images: after a scroll, images entering the viewport may still be
+// loading, so an immediate capture shows blank boxes. Poll (bounded) until every
+// viewport-visible img has loaded. Images that errored count as done
+// (complete === true with no box growth), so a dead image can't stall capture;
+// out-of-viewport images are ignored (their own tile will wait for them).
+async function waitForViewportImages(tabId) {
+  const deadline = Date.now() + SCROLL_IMAGE_WAIT_MS;
+  for (;;) {
+    const [{ result: ready }] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const vh = window.innerHeight;
+        const imgs = document.getElementsByTagName("img");
+        for (let i = 0; i < imgs.length; i += 1) {
+          const img = imgs[i];
+          if (img.complete) continue;
+          const rect = img.getBoundingClientRect();
+          if (rect.height > 0 && rect.bottom >= 0 && rect.top <= vh) {
+            return false; // a visible image is still loading
+          }
+        }
+        return true;
+      }
+    });
+    if (ready) return;
+    if (Date.now() >= deadline) return;
+    await delay(IMAGE_POLL_MS);
+  }
+}
+
 async function decodeBitmap(dataUrl) {
   const blob = await (await fetch(dataUrl)).blob();
   return createImageBitmap(blob, {
@@ -308,40 +366,48 @@ async function captureTabWithoutScrollbars(tabId, windowId) {
 }
 
 async function stitchTiles(metrics, tiles) {
-  const images = await Promise.all(
-    tiles.map(async (tile) => ({
-      ...tile,
-      bitmap: await decodeBitmap(tile.dataUrl)
-    }))
-  );
-
-  const scaleX = images[0].bitmap.width / metrics.viewportWidth;
-  const scaleY = images[0].bitmap.height / metrics.viewportHeight;
+  // Tile 0 fixes the device-pixel scale before the canvas is sized; the rest
+  // decode through a bounded worker pool (decode -> draw -> close) so peak
+  // memory stays ~STITCH_CONCURRENCY tiles instead of every tile at once.
+  const first = await decodeBitmap(tiles[0].dataUrl);
+  const scaleX = first.width / metrics.viewportWidth;
+  const scaleY = first.height / metrics.viewportHeight;
   const canvasWidth = Math.max(1, Math.round(metrics.fullWidth * scaleX));
   const canvasHeight = Math.max(1, Math.round(metrics.fullHeight * scaleY));
   const canvas = new OffscreenCanvas(canvasWidth, canvasHeight);
   const context = canvas.getContext("2d", { alpha: false });
   context.imageSmoothingEnabled = false;
 
-  for (const image of images) {
-    const destX = Math.floor(image.x * scaleX);
-    const destY = Math.floor(image.y * scaleY);
-    const srcW = Math.min(image.bitmap.width, canvasWidth - destX);
-    const srcH = Math.min(image.bitmap.height, canvasHeight - destY);
-    if (srcW < 1 || srcH < 1) continue;
+  const drawTile = (bitmap, tile) => {
+    const destX = Math.floor(tile.x * scaleX);
+    const destY = Math.floor(tile.y * scaleY);
+    const srcW = Math.min(bitmap.width, canvasWidth - destX);
+    const srcH = Math.min(bitmap.height, canvasHeight - destY);
+    if (srcW < 1 || srcH < 1) return;
 
-    context.drawImage(
-      image.bitmap,
-      0,
-      0,
-      srcW,
-      srcH,
-      destX,
-      destY,
-      srcW,
-      srcH
-    );
-  }
+    context.drawImage(bitmap, 0, 0, srcW, srcH, destX, destY, srcW, srcH);
+  };
+
+  drawTile(first, tiles[0]);
+  first.close();
+
+  let next = 1;
+  const worker = async () => {
+    while (next < tiles.length) {
+      const tile = tiles[next];
+      next += 1;
+      const bitmap = await decodeBitmap(tile.dataUrl);
+      try {
+        drawTile(bitmap, tile);
+      } finally {
+        bitmap.close();
+      }
+    }
+  };
+
+  await Promise.all(
+    Array.from({ length: Math.min(STITCH_CONCURRENCY, tiles.length - 1) }, worker)
+  );
 
   const blob = await canvas.convertToBlob({ type: "image/png" });
   return blobToDataUrl(blob);

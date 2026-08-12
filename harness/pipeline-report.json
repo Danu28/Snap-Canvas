@@ -1,0 +1,99 @@
+{
+  "kind": "pipeline",
+  "recordedAt": "2026-08-12T05:38:42.666Z",
+  "viewport": {
+    "vw": 982,
+    "vh": 504
+  },
+  "wallMs": 4213,
+  "response": {
+    "ok": true
+  },
+  "stitch": {
+    "ok": true,
+    "w": 982,
+    "h": 3600,
+    "runs": [
+      {
+        "y": 0,
+        "row": 0,
+        "len": 300
+      },
+      {
+        "y": 300,
+        "row": 1,
+        "len": 300
+      },
+      {
+        "y": 600,
+        "row": 2,
+        "len": 300
+      },
+      {
+        "y": 900,
+        "row": 3,
+        "len": 300
+      },
+      {
+        "y": 1200,
+        "row": 4,
+        "len": 300
+      },
+      {
+        "y": 1500,
+        "row": 5,
+        "len": 300
+      },
+      {
+        "y": 1800,
+        "row": 6,
+        "len": 300
+      },
+      {
+        "y": 2100,
+        "row": 7,
+        "len": 300
+      },
+      {
+        "y": 2400,
+        "row": 8,
+        "len": 300
+      },
+      {
+        "y": 2700,
+        "row": 9,
+        "len": 300
+      },
+      {
+        "y": 3000,
+        "row": 10,
+        "len": 300
+      },
+      {
+        "y": 3300,
+        "row": 11,
+        "len": 300
+      }
+    ]
+  },
+  "counters": {
+    "cimb": {
+      "now": 0,
+      "max": 4,
+      "created": 9,
+      "closed": 9
+    },
+    "tabs": [
+      "editor.html"
+    ],
+    "captures": 8
+  },
+  "assertions": {
+    "responseOk": true,
+    "tabOk": true,
+    "dimsOk": true,
+    "seqOk": true,
+    "maxConcurrent": 4,
+    "closedAll": true
+  }
+}

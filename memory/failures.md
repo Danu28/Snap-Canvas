@@ -46,3 +46,9 @@ synthetic dispatchEvent alone — the browser's default actions (focus, click
 synthesis) don't run for synthetic events.
 
 sig: artifact:js:synthetic-events-miss-focus
+
+Failure: Harness rigging silently invalid — the image-wait harness "didn't work" for two separate reasons that looked like real-code bugs: (a) `\"` inside a template-literal-embedded harness init (chrome-stub script injected via Page.addScriptToEvaluateOnNewDocument) collapsed to `"`, making the whole init a SyntaxError; Chrome registers the script without error and it never runs → `window.__pipeline.listener is not a function` errors that looked like a listener race. (b) An `<img>` with no src reports `complete === true` (spec: no-src imgs count as broken), so a no-src placeholder could never simulate a lazy-loading image — the wait-under-test was "always ready".
+
+Prevention Rule: When a harness embeds test code in a backtick template literal, use single quotes for inner strings and re-read the generated source mentally (or print it); a silently-invalid init yields races-looking errors — probe the in-page state (typeof listener) BEFORE suspecting the code under test. To model an image that is genuinely still loading, hold its request open with CDP Network.setRequestInterception + continueInterceptedRequest, released at the right moment — never a no-src element. Verify negative controls actually load the modified file (check the served bytes), not the repo file.
+
+sig: harness:init-template-escape / harness:img-complete-nosrc

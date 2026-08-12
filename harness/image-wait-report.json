@@ -1,0 +1,93 @@
+{
+  "kind": "image-wait",
+  "recordedAt": "2026-08-12T05:33:34.520Z",
+  "wallMs": 1109,
+  "response": {
+    "ok": true
+  },
+  "stitch": {
+    "ok": true,
+    "w": 982,
+    "h": 600,
+    "runs": [
+      {
+        "y": 0,
+        "row": 0,
+        "len": 300
+      },
+      {
+        "y": 300,
+        "row": 1,
+        "len": 300
+      }
+    ],
+    "imgPixel": [
+      220,
+      220,
+      30
+    ],
+    "imgPixel2": [
+      220,
+      220,
+      30
+    ],
+    "outsidePixel": [
+      200,
+      30,
+      30
+    ]
+  },
+  "counters": {
+    "cimb": {
+      "now": 0,
+      "max": 1,
+      "created": 3,
+      "closed": 3
+    },
+    "tabs": [
+      "editor.html"
+    ],
+    "captures": 2,
+    "behaviors": [
+      "auto",
+      "auto"
+    ],
+    "imageChecks": [
+      {
+        "t": 1786512813455,
+        "result": false,
+        "imgComplete": "false/0//harness/img-red.png"
+      },
+      {
+        "t": 1786512813506,
+        "result": false,
+        "imgComplete": "false/0//harness/img-red.png"
+      },
+      {
+        "t": 1786512813566,
+        "result": false,
+        "imgComplete": "false/0//harness/img-red.png"
+      },
+      {
+        "t": 1786512813617,
+        "result": true,
+        "imgComplete": "true/2//harness/img-red.png"
+      },
+      {
+        "t": 1786512813788,
+        "result": true,
+        "imgComplete": "true/2//harness/img-red.png"
+      }
+    ],
+    "imgComplete": "true/2"
+  },
+  "assertions": {
+    "responseOk": true,
+    "tabOk": true,
+    "dimsOk": true,
+    "guardOk": true,
+    "imgOk": true,
+    "seqOk": true,
+    "closedAll": true
+  }
+}

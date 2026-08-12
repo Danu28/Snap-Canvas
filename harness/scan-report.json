@@ -1,0 +1,26 @@
+{
+  "kind": "scan-eq",
+  "recordedAt": "2026-08-11T20:06:32.162Z",
+  "page": {
+    "elements": 16703,
+    "expectedHidden": 1600
+  },
+  "oldTimingsMs": [
+    47.199999928474426,
+    36.700000047683716,
+    45.300000071525574
+  ],
+  "newTimingsMs": [
+    39,
+    51.299999952316284,
+    45
+  ],
+  "medianOldMs": 45.300000071525574,
+  "medianNewMs": 45,
+  "speedup": 1.0066666682561238,
+  "equivalence": {
+    "hiddenEq": true,
+    "metricsOk": true,
+    "oldNewAgree": true
+  }
+}

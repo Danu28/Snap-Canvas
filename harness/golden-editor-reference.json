@@ -1,0 +1,90 @@
+{
+  "kind": "editor-pixel",
+  "recordedAt": "2026-08-11T20:06:14.152Z",
+  "image": {
+    "width": 800,
+    "height": 600
+  },
+  "steps": [
+    {
+      "step": "rect",
+      "hash": 3591490414
+    },
+    {
+      "step": "arrow",
+      "hash": 784662893
+    },
+    {
+      "step": "text",
+      "hash": 3150257535
+    },
+    {
+      "step": "select-move",
+      "hash": 2632059217
+    },
+    {
+      "step": "resize",
+      "hash": 3618418518
+    },
+    {
+      "step": "undo",
+      "hash": 3738706881
+    },
+    {
+      "step": "redo",
+      "hash": 1410788517
+    },
+    {
+      "step": "delete",
+      "hash": 3040515985
+    },
+    {
+      "step": "duplicate",
+      "hash": 2033405105
+    },
+    {
+      "step": "zoom",
+      "hash": 2033405105
+    },
+    {
+      "step": "move-burst",
+      "hash": 2337154338
+    }
+  ],
+  "counters": {
+    "drawImage": 33,
+    "getImageData": 0,
+    "getContextHints": [
+      null,
+      "{\"willReadFrequently\":true}",
+      null,
+      "{\"willReadFrequently\":true}",
+      null,
+      "{\"willReadFrequently\":true}",
+      null,
+      "{\"willReadFrequently\":true}",
+      null,
+      "{\"willReadFrequently\":true}",
+      null,
+      "{\"willReadFrequently\":true}",
+      null,
+      "{\"willReadFrequently\":true}",
+      null,
+      "{\"willReadFrequently\":true}",
+      null,
+      "{\"willReadFrequently\":true}",
+      null,
+      "{\"willReadFrequently\":true}",
+      null,
+      "{\"willReadFrequently\":true}",
+      null
+    ]
+  },
+  "moveBurst": {
+    "drawImageDelta": 0,
+    "burstMs": 177,
+    "pageMoveMs": 7.399999976158142
+  },
+  "pageErrors": [],
+  "runtimeErrors": 0
+}

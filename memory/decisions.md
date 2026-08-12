@@ -22,6 +22,19 @@ line; unknown inputs show `(received: '<args>')` for diagnosability. No
 change to sampling values (0.8 / 0.95) or the `/skill:brainstormer` auto-
 enable behavior.
 
+## [2026-08-11] Decision: Perf scope — editor photo-layer split + bounded stitch + scan/settle tuning
+
+Context: user asked to "improve this browser extension for better performance. Make sure features not affected or degraded." Hot paths identified: (a) full-page capture fixed-element scan does getComputedStyle on every node; (b) stitchTiles decodes ALL tiles concurrently (unbounded memory); (c) editor redraw() re-draws the whole photo + every annotation on EVERY pointermove; (d) willReadFrequently:true forces CPU canvas with no getImageData usage.
+
+Options (per hot spot):
+- Editor redraw: A) stacked <img> photo layer under the canvas (photo drawn once by the browser, canvas holds only annotations; renderComposite() for download/copy) vs B) dirty-region restore from an OffscreenCanvas copy (no DOM change, but bbox/overlap math + ghosting risk) vs C) rAF-throttle redraws only (doesn't fix the per-redraw cost). Chosen: A — zero region math, zero ghosting risk, memory unchanged (canvas same size; photo reused via img), export trivially verifiable pixel-identical. Rejected B (subtle artifact risk on overlap), C (band-aid).
+- Stitch memory: bounded worker pool (CONCURRENCY=4) with bitmap.close() after draw vs Promise.all (unbounded peak). Chosen: pool — disjoint draw regions make order irrelevant; peak = 4 tiles + output.
+- Fixed scan: single forced recalc + live HTMLCollection + read only style.position vs stylesheet-probe shortcuts (rejected: correctness risk missing fixed elements = stitch duplication).
+- Scroll settle: 200→120 ms, one-line revert if seams appear, alignment harness verifies.
+- willReadFrequently: removed — no getImageData anywhere; GPU canvas accelerates the now vector-only redraws.
+
+Consequences: all changes behavior-preserving by design; pixel-equivalence + hidden-set harnesses (T0 baselines recorded BEFORE code change) are the regression contract. Gate 2 not triggered (no boundary task, Risk Notes = None — existing exposure modified behavior-preservingly, no new surface). Verifier tier Full.
+
 ## [2026-08-11] Decision: Adopt memory/ for SnapCanvas + feature set for this build
 
 Context: the five memory files in this repo held notes for a different project (a pi
