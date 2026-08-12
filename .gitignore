@@ -3,3 +3,6 @@ Thumbs.db
 
 .devloop/
 devloop.js
+
+# Editor/agent harness runtime state
+.harness/

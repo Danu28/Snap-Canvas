@@ -15,10 +15,22 @@
       </div>
 
       <div class="tool-grid" role="toolbar" aria-label="Annotation tools">
-        <button class="tool-button is-active" data-tool="rectangle">Rectangle</button>
-        <button class="tool-button" data-tool="arrow">Arrow</button>
-        <button class="tool-button" data-tool="text">Text</button>
-        <button class="tool-button" data-tool="select">Select</button>
+        <button class="tool-button is-active" data-tool="rectangle" title="Rectangle — drag on canvas">
+          <svg class="tool-icon" viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="4.5" width="14" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+          <span class="tool-label">Rectangle</span>
+        </button>
+        <button class="tool-button" data-tool="arrow" title="Arrow — drag to point">
+          <svg class="tool-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 14 L13 5 M8 5 H13 V10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span class="tool-label">Arrow</span>
+        </button>
+        <button class="tool-button" data-tool="text" title="Text — click to type (Enter to place)">
+          <svg class="tool-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4.5 4.5 H15.5 M10 4.5 V15.5 M8 15.5 H12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          <span class="tool-label">Text</span>
+        </button>
+        <button class="tool-button" data-tool="select" title="Select — click, drag, resize, Delete">
+          <svg class="tool-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 3 L15 11 L10.6 11.4 L12.6 17 L9.4 18 L7.4 12.6 L5 15 Z" fill="currentColor"/></svg>
+          <span class="tool-label">Select</span>
+        </button>
       </div>
 
       <div class="field">
@@ -50,13 +62,21 @@
       </div>
 
       <div class="actions">
-        <button id="undoButton" class="secondary">Undo</button>
-        <button id="redoButton" class="secondary">Redo</button>
-        <button id="copyButton" class="secondary">Copy Image</button>
-        <button id="downloadButton" class="primary">Download PNG</button>
+        <button id="undoButton" class="secondary" title="Undo last change (Ctrl+Z)">Undo</button>
+        <button id="redoButton" class="secondary" title="Redo last change (Ctrl+Shift+Z)">Redo</button>
+        <button id="clearButton" class="secondary" title="Remove all annotations">Clear All</button>
+        <button id="copyButton" class="secondary" title="Copy annotated image to clipboard">Copy Image</button>
+        <button id="downloadButton" class="primary" title="Save annotated image as PNG">Download PNG</button>
       </div>
 
       <p id="editorStatus" class="status">Loading capture...</p>
+
+      <div class="shortcuts" aria-label="Keyboard shortcuts">
+        <span class="shortcut"><kbd>Space</kbd> + drag to pan</span>
+        <span class="shortcut"><kbd>Ctrl</kbd>+<kbd>Z</kbd> undo · <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redo</span>
+        <span class="shortcut"><kbd>Ctrl</kbd>+<kbd>D</kbd> duplicate · <kbd>Del</kbd> delete · <kbd>Esc</kbd> deselect</span>
+        <span class="shortcut"><kbd>Wheel</kbd> zoom</span>
+      </div>
     </aside>
 
     <main class="canvas-area">

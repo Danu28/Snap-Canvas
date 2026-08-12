@@ -22,6 +22,7 @@ const colorSwatches = [...document.querySelectorAll(".color-swatch")];
 const undoButton = document.querySelector("#undoButton");
 const redoButton = document.querySelector("#redoButton");
 const copyButton = document.querySelector("#copyButton");
+const clearButton = document.querySelector("#clearButton");
 const downloadButton = document.querySelector("#downloadButton");
 
 let captureImage = null;
@@ -78,6 +79,7 @@ async function initialize() {
   redoStack = [];
   redraw();
   bindEvents();
+  updateActionStates();
   setStatus(
     `Ready to annotate your ${capture.mode} capture.${getExtensionVersion() ? ` (v${getExtensionVersion()})` : ""}`
   );
@@ -97,6 +99,7 @@ function bindEvents() {
     button.addEventListener("click", () => {
       currentTool = button.dataset.tool;
       toolButtons.forEach((tool) => tool.classList.toggle("is-active", tool === button));
+      canvas.classList.toggle("selecting", currentTool === "select");
       setStatus(`Tool selected: ${currentTool}.`);
     });
   });
@@ -115,6 +118,7 @@ function bindEvents() {
   undoButton.addEventListener("click", undo);
   redoButton.addEventListener("click", redo);
   copyButton.addEventListener("click", copyImage);
+  clearButton.addEventListener("click", clearAll);
   downloadButton.addEventListener("click", downloadImage);
   zoomInButton.addEventListener("click", () => setZoom(zoom * ZOOM_STEP));
   zoomOutButton.addEventListener("click", () => setZoom(zoom / ZOOM_STEP));
@@ -691,6 +695,7 @@ function undo() {
   selectedIndex = -1;
   resetDragState();
   redraw();
+  updateActionStates();
   setStatus("Last change undone.");
 }
 
@@ -709,6 +714,7 @@ function redo() {
   selectedIndex = -1;
   resetDragState();
   redraw();
+  updateActionStates();
   setStatus("Change redone.");
 }
 
@@ -724,6 +730,22 @@ function deleteSelected() {
   commitHistory();
   redraw();
   setStatus("Annotation deleted.");
+}
+
+// Clear every annotation in one click — undoable via the same history stack
+// as any single edit (commitHistory pushes the pre-clear state).
+function clearAll() {
+  if (annotations.length === 0) {
+    setStatus("Nothing to clear.");
+    return;
+  }
+
+  annotations = [];
+  selectedIndex = -1;
+  resetDragState();
+  commitHistory();
+  redraw();
+  setStatus("All annotations cleared. Undo restores them.");
 }
 
 // Destructive ops (undo/redo/delete) replace or shrink annotations[]; any
@@ -767,6 +789,7 @@ function commitHistory() {
     historyStack.shift();
   }
   redoStack.length = 0; // any new edit invalidates the redo history
+  updateActionStates();
 }
 
 function cloneAnnotations(list) {
@@ -805,6 +828,14 @@ async function copyImage() {
 
 function setStatus(message) {
   statusElement.textContent = message;
+}
+
+// Keep undo/redo/clear affordances honest: grey them out (but keep them
+// clickable-safe) when there is nothing to act on.
+function updateActionStates() {
+  undoButton.disabled = historyStack.length <= 1;
+  redoButton.disabled = redoStack.length === 0;
+  clearButton.disabled = annotations.length === 0;
 }
 
 function fitToWidth() {
