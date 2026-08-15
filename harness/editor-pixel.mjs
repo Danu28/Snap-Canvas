@@ -97,8 +97,9 @@ try {
     const cv = document.getElementById("editorCanvas");
     const cr = cv.getBoundingClientRect();
     const tool = {};
-    for (const t of ["rectangle", "arrow", "text", "select"]) {
+    for (const t of ["rectangle", "arrow", "text", "select", "blur", "pixel"]) {
       const b = [...document.querySelectorAll(".tool-button")].find((x) => x.dataset.tool === t);
+      if (!b) { tool[t] = null; continue; }
       const r = b.getBoundingClientRect();
       tool[t] = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
     }
@@ -212,6 +213,20 @@ try {
   const pageMoveMs = burst;
   log.push(`move burst: drawImage delta=${drawImageDelta}, wall ${burstMs}ms, page-side ${pageMoveMs.toFixed(2)}ms for 200 in-page moves`);
   await step("move-burst");
+
+  // 12. Blur redact: drag 55%->75% W, 60%->72% H.
+  if (geo.tool.blur) {
+    await cdp.click(geo.tool.blur.x, geo.tool.blur.y);
+    await cdp.drag(sx(0.55 * IMG_W), sy(0.60 * IMG_H), sx(0.75 * IMG_W), sy(0.72 * IMG_H));
+    await step("blur");
+  }
+
+  // 13. Pixelate redact: drag 6%->24% W, 6%->18% H.
+  if (geo.tool.pixel) {
+    await cdp.click(geo.tool.pixel.x, geo.tool.pixel.y);
+    await cdp.drag(sx(0.06 * IMG_W), sy(0.06 * IMG_H), sx(0.24 * IMG_W), sy(0.18 * IMG_H));
+    await step("pixel");
+  }
 
   const counters = await cdp.evalJs(`window.__counters`);
   const pageErrors = await cdp.evalJs(`window.__pageErrors`);

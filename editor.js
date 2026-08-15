@@ -7,6 +7,9 @@ const ZOOM_MIN = 0.25;
 const ZOOM_MAX = 8;
 const ZOOM_STEP = 1.25;
 const HISTORY_LIMIT = 50;
+const REDACT_RADIUS = 24;
+const REDACT_CELL = 12;
+const REDACT_TINT = "rgba(0, 0, 0, 0.18)";
 
 const canvas = document.querySelector("#editorCanvas");
 const photo = document.querySelector("#editorPhoto");
@@ -307,6 +310,9 @@ function onPointerUp(event) {
         y2: endPoint.y,
         color: activeColor
       });
+    } else if (currentTool === "blur" || currentTool === "pixel") {
+      const rect = normalizeRect(startPoint, endPoint);
+      annotations.push({ type: "redact", mode: currentTool, ...rect });
     }
     commitHistory();
     setStatus("Annotation added.");
@@ -428,7 +434,7 @@ function hitTestText(point) {
 function hitTestAnnotation(point) {
   for (let i = annotations.length - 1; i >= 0; i -= 1) {
     const a = annotations[i];
-    if (a.type === "rectangle") {
+    if (a.type === "rectangle" || a.type === "redact") {
       if (
         point.x >= a.x - 4 &&
         point.x <= a.x + a.width + 4 &&
@@ -470,7 +476,7 @@ function hitTestHandle(point) {
   const a = annotations[selectedIndex];
   const RADIUS = 14;
 
-  if (a.type === "rectangle") {
+  if (a.type === "rectangle" || a.type === "redact") {
     const corners = {
       nw: [a.x, a.y],
       ne: [a.x + a.width, a.y],
@@ -544,7 +550,7 @@ function drawHandles(ctx = context) {
   ctx.fillStyle = "#fff";
   ctx.lineWidth = 2;
 
-  if (a.type === "rectangle") {
+  if (a.type === "rectangle" || a.type === "redact") {
     const corners = [
       [a.x, a.y],
       [a.x + a.width, a.y],
@@ -635,7 +641,49 @@ function drawPreview(from, to) {
       y2: to.y,
       color: activeColor
     });
+  } else if (currentTool === "blur" || currentTool === "pixel") {
+    const rect = normalizeRect(from, to);
+    drawAnnotation({ type: "redact", mode: currentTool, ...rect });
   }
+}
+
+// Blur/pixelate redaction: clips to the rect, then re-draws the photo region
+// beneath it (blurred via ctx.filter, or solid-cell pixelate) plus a light
+// tint. Shared by display redraw, drag preview, and renderComposite so the
+// export shows exactly what the canvas shows. The 1:1 dest==source mapping
+// keeps the region pixel-aligned with the photo layer.
+function drawRedact(a, ctx) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(a.x, a.y, a.width, a.height);
+  ctx.clip();
+
+  if (a.mode === "pixel") {
+    // Solid-cell pixelate without any filtering dependency: each cell is drawn
+    // from a single source pixel, so even a smoothed upscale of a 1x1 source
+    // yields a flat block — identical on any rasterizer, display and export
+    // match by construction.
+    ctx.imageSmoothingEnabled = false;
+    for (let by = a.y; by < a.y + a.height; by += REDACT_CELL) {
+      const h = Math.min(REDACT_CELL, a.y + a.height - by);
+      for (let bx = a.x; bx < a.x + a.width; bx += REDACT_CELL) {
+        const w = Math.min(REDACT_CELL, a.x + a.width - bx);
+        ctx.drawImage(captureImage, bx + w / 2, by + h / 2, 1, 1, bx, by, w, h);
+      }
+    }
+  } else {
+    const right = Math.min(captureImage.width, a.x + a.width + REDACT_RADIUS);
+    const bottom = Math.min(captureImage.height, a.y + a.height + REDACT_RADIUS);
+    const sx = Math.max(0, a.x - REDACT_RADIUS);
+    const sy = Math.max(0, a.y - REDACT_RADIUS);
+    ctx.filter = `blur(${REDACT_RADIUS}px)`;
+    ctx.drawImage(captureImage, sx, sy, right - sx, bottom - sy, sx, sy, right - sx, bottom - sy);
+    ctx.filter = "none";
+  }
+
+  ctx.fillStyle = REDACT_TINT;
+  ctx.fillRect(a.x, a.y, a.width, a.height);
+  ctx.restore();
 }
 
 function drawAnnotation(a, ctx = context) {
@@ -647,6 +695,11 @@ function drawAnnotation(a, ctx = context) {
 
   if (a.type === "rectangle") {
     ctx.strokeRect(a.x, a.y, a.width, a.height);
+    return;
+  }
+
+  if (a.type === "redact") {
+    drawRedact(a, ctx);
     return;
   }
 

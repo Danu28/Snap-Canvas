@@ -1,6 +1,6 @@
 {
   "kind": "editor-pixel",
-  "recordedAt": "2026-08-12T07:49:37.097Z",
+  "recordedAt": "2026-08-15T12:03:19.936Z",
   "image": {
     "width": 800,
     "height": 600
@@ -49,12 +49,24 @@
     {
       "step": "move-burst",
       "hash": 2268351884
+    },
+    {
+      "step": "blur",
+      "hash": 3754685553
+    },
+    {
+      "step": "pixel",
+      "hash": 3343465906
     }
   ],
   "counters": {
-    "drawImage": 33,
+    "drawImage": 233,
     "getImageData": 0,
     "getContextHints": [
+      null,
+      "{\"willReadFrequently\":true}",
+      null,
+      "{\"willReadFrequently\":true}",
       null,
       "{\"willReadFrequently\":true}",
       null,
@@ -82,8 +94,8 @@
   },
   "moveBurst": {
     "drawImageDelta": 0,
-    "burstMs": 159,
-    "pageMoveMs": 2.5999999998603016
+    "burstMs": 172,
+    "pageMoveMs": 4.299999997019768
   },
   "pageErrors": [],
   "runtimeErrors": 0
