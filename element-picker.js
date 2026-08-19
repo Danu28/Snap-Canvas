@@ -112,13 +112,15 @@ if (!window.__pagesnapElementPickerLoaded) {
   }
 
   async function onPointerDown(event) {
+    // Always keep the click from reaching the page while the picker is active
+    // (even over empty scaffolding with no capture target), so picking can't
+    // trigger page behavior or leave the picker mid-state.
+    event.preventDefault();
+    event.stopPropagation();
+
     if (!currentTarget) {
       return;
     }
-
-    // Keep the click from reaching the page.
-    event.preventDefault();
-    event.stopPropagation();
 
     const rect = currentTarget.getBoundingClientRect();
     const capturedRect = {

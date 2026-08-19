@@ -130,6 +130,7 @@ function bindEvents() {
   zoomInButton.addEventListener("click", () => setZoom(zoom * ZOOM_STEP));
   zoomOutButton.addEventListener("click", () => setZoom(zoom / ZOOM_STEP));
   fitButton.addEventListener("click", fitToWidth);
+  canvasWrap.addEventListener("wheel", onWheel, { passive: false });
   window.addEventListener("keydown", onKeyDown);
   window.addEventListener("keyup", onKeyUp);
   fontSizeDec.addEventListener("click", () => applyFontSize(activeFontSize - 2));
@@ -342,7 +343,7 @@ function showTextEditor(point) {
   textEditor.className = "text-editor-overlay";
   textEditor.style.left = `${left}px`;
   textEditor.style.top = `${top}px`;
-  textEditor.style.fontSize = `${activeFontSize}px`;
+  textEditor.style.fontSize = `${activeFontSize * zoom}px`;
   textEditor.style.color = activeColor;
   document.body.appendChild(textEditor);
   textEditor.focus();
@@ -938,6 +939,13 @@ function startPan(event) {
   if (event.button === 1) {
     event.preventDefault(); // block middle-click autoscroll
   }
+  // Capture the pointer so panning keeps tracking even when the cursor leaves
+  // the canvas element (e.g. dragging a narrow fit-to-width canvas sideways).
+  try {
+    canvas.setPointerCapture(event.pointerId);
+  } catch {
+    // Pointer already released; nothing to capture.
+  }
   panning = true;
   panStart = {
     x: event.clientX,
@@ -946,6 +954,24 @@ function startPan(event) {
     scrollTop: canvasArea.scrollTop
   };
   canvasWrap.classList.add("panning");
+}
+
+function onWheel(event) {
+  event.preventDefault();
+  const factor = event.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
+  const nextZoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom * factor));
+  if (nextZoom === zoom) return;
+
+  // Zoom toward the cursor: keep the canvas point under the pointer stationary.
+  const rect = canvas.getBoundingClientRect();
+  const fx = (event.clientX - rect.left) / rect.width;
+  const fy = (event.clientY - rect.top) / rect.height;
+
+  setZoom(nextZoom);
+
+  const newRect = canvas.getBoundingClientRect();
+  canvasArea.scrollLeft += (event.clientX - newRect.left) - fx * newRect.width;
+  canvasArea.scrollTop += (event.clientY - newRect.top) - fy * newRect.height;
 }
 
 function onKeyDown(event) {
