@@ -22,14 +22,15 @@ if (!window.__pagesnapSelectionLoaded) {
     return false;
   });
 
-  function activateSelection() {
+  function activateSelection(hint = "") {
     cleanup();
 
+    const helpText = hint || "Drag to select an area. Press Esc to cancel.";
     overlay = document.createElement("div");
     overlay.id = "pagesnap-selection-overlay";
     overlay.innerHTML = `
       <div class="pagesnap-shade"></div>
-      <div class="pagesnap-help">Drag to select an area. Press Esc to cancel.</div>
+      <div class="pagesnap-help">${helpText}</div>
     `;
 
     const style = document.createElement("style");
@@ -104,6 +105,13 @@ if (!window.__pagesnapSelectionLoaded) {
     active = false;
     const rect = buildRect(startX, startY, event.clientX, event.clientY);
     cleanup();
+
+    if (rect.width < 2 || rect.height < 2) {
+      // Too small to capture (matches the background's guard). Re-arm the
+      // overlay with a hint instead of failing silently in the console.
+      activateSelection("Selection too small — drag a larger area.");
+      return;
+    }
 
     try {
       await waitForOverlayToDisappear();

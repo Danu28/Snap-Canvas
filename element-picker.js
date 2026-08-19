@@ -20,13 +20,14 @@ if (!window.__pagesnapElementPickerLoaded) {
     return false;
   });
 
-  function activatePicker() {
+  function activatePicker(hint = "") {
     cleanup();
 
+    const helpText = hint || "Hover an element, then click to capture it. Press Esc to cancel.";
     overlay = document.createElement("div");
     overlay.id = "pagesnap-element-picker";
     overlay.innerHTML = `
-      <div class="pagesnap-picker-help">Hover an element, then click to capture it. Press Esc to cancel.</div>
+      <div class="pagesnap-picker-help">${helpText}</div>
     `;
 
     const style = document.createElement("style");
@@ -122,14 +123,29 @@ if (!window.__pagesnapElementPickerLoaded) {
       return;
     }
 
+    // Scroll the element fully into view so the viewport capture can reach it
+    // (background reads the ACTIVE tab viewport). 'instant' keeps the geometry
+    // measured here consistent with the capture moment.
+    currentTarget.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" });
+
+    // Re-measure after any scroll.
     const rect = currentTarget.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    if (rect.left < 0 || rect.top < 0 || rect.right > vw || rect.bottom > vh) {
+      // A viewport-only capture would silently truncate the element. Re-arm
+      // with an honest hint instead of shipping a clipped image.
+      cleanup();
+      activatePicker("Element is larger than the visible area. Use full-page capture for it.");
+      return;
+    }
     const capturedRect = {
       left: rect.left,
       top: rect.top,
       width: rect.width,
       height: rect.height,
-      viewportWidth: window.innerWidth,
-      viewportHeight: window.innerHeight
+      viewportWidth: vw,
+      viewportHeight: vh
     };
     cleanup();
 

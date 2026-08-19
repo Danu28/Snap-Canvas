@@ -10,6 +10,9 @@ function setStatus(message, isError = false) {
 
 async function capture(mode) {
   const delayMs = parseInt(delaySelect.value, 10) || 0;
+  // The delay is meaningless for Selected mode (the user controls when to
+  // capture by dragging), so grey the selector out for it.
+  delaySelect.disabled = mode === "selected";
   setStatus(`Starting ${mode} capture...`);
   buttons.forEach((button) => {
     button.disabled = true;
@@ -35,7 +38,9 @@ async function capture(mode) {
     }
 
     if (mode === "selected") {
-      setStatus("Select an area on the page.");
+      // Close right after dispatch — the selection overlay on the page carries
+      // its own help text, so a lingering popup with disabled buttons adds noise.
+      window.close();
       return;
     }
 
@@ -48,6 +53,7 @@ async function capture(mode) {
     }
   } catch (error) {
     setStatus(error.message || "Capture failed.", true);
+    delaySelect.disabled = false;
     buttons.forEach((button) => {
       button.disabled = false;
     });

@@ -145,6 +145,7 @@ async function handleSelectedCapture({ rect }, sender) {
 async function captureFullPage(tabId, windowId) {
   await injectScrollbarHide(tabId);
   await waitForPaint(tabId);
+  await assertTabActive(tabId, windowId);
 
   let metrics;
   try {
@@ -202,6 +203,7 @@ async function captureFullPage(tabId, windowId) {
         await delay(SCROLL_SETTLE_MS);
         await waitForPaint(tabId);
         await waitForViewportImages(tabId);
+        await assertTabActive(tabId, windowId);
         const dataUrl = await captureVisibleTabThrottled(windowId);
         tiles.push({ x, y, dataUrl });
       }
@@ -241,6 +243,19 @@ function buildSteps(total, viewport) {
 
   values.push(total - viewport);
   return values;
+}
+
+// captureVisibleTab captures the ACTIVE tab of the window, not the requested
+// tab. If the user switches tabs mid-capture, tiles would come from the wrong
+// page. Verify the target is still active before each capture and abort with a
+// clear error rather than stitching wrong content.
+async function assertTabActive(tabId, windowId) {
+  const [tab] = await chrome.tabs.query({ active: true, windowId });
+  if (!tab || tab.id !== tabId) {
+    throw new Error(
+      "The tab changed while capturing — the capture was cancelled. Try again without switching tabs."
+    );
+  }
 }
 
 async function captureVisibleTabThrottled(windowId) {
@@ -327,13 +342,21 @@ async function waitForViewportImages(tabId) {
     const [{ result: ready }] = await chrome.scripting.executeScript({
       target: { tabId },
       func: () => {
+        const vw = window.innerWidth;
         const vh = window.innerHeight;
         const imgs = document.getElementsByTagName("img");
         for (let i = 0; i < imgs.length; i += 1) {
           const img = imgs[i];
           if (img.complete) continue;
           const rect = img.getBoundingClientRect();
-          if (rect.height > 0 && rect.bottom >= 0 && rect.top <= vh) {
+          // Visible in the viewport both vertically AND horizontally — a wide
+          // off-screen image (page wider than the viewport) must not stall the
+          // tile; that image's own tile waits for it once scrolled into view.
+          if (
+            rect.height > 0 &&
+            rect.bottom >= 0 && rect.top <= vh &&
+            rect.right > 0 && rect.left <= vw
+          ) {
             return false; // a visible image is still loading
           }
         }
@@ -359,6 +382,7 @@ async function captureTabWithoutScrollbars(tabId, windowId) {
 
   try {
     await waitForPaint(tabId);
+    await assertTabActive(tabId, windowId);
     return await captureVisibleTabThrottled(windowId);
   } finally {
     await removeScrollbarHide(tabId);

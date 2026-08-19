@@ -52,6 +52,7 @@ let textEditorMeta = null;
 let selectedIndex = -1;
 let dragTarget = -1;
 let resizeState = null;
+let dragSnapshot = null; // annotation geometry at drag/resize start (no-op-commit suppression)
 // measureText widths are deterministic per (value, fontSize) and zoom-independent
 // (canvas-space metrics) — cached so select-mode pointermoves don't re-shape text.
 const textWidthCache = new Map();
@@ -142,6 +143,24 @@ function bindEvents() {
   fontSizeInput.addEventListener("change", () => applyFontSize(fontSizeInput.value));
 }
 
+// Geometry snapshot for no-op-commit suppression: capture the annotation's
+// shape when a drag/resize/text-move begins; if it's unchanged on pointerup,
+// skip commitHistory so undo never records a do-nothing edit.
+function snapshotGeometry(a) {
+  if (a.type === "arrow") {
+    return { x1: a.x1, y1: a.y1, x2: a.x2, y2: a.y2 };
+  }
+  return { x: a.x, y: a.y, width: a.width, height: a.height };
+}
+
+function geometryChanged(a, snap) {
+  if (!snap) return true;
+  if (a.type === "arrow") {
+    return a.x1 !== snap.x1 || a.y1 !== snap.y1 || a.x2 !== snap.x2 || a.y2 !== snap.y2;
+  }
+  return a.x !== snap.x || a.y !== snap.y || a.width !== snap.width || a.height !== snap.height;
+}
+
 function onPointerDown(event) {
   if (textEditor) {
     return; // the blur handler commits the open text editor
@@ -160,6 +179,7 @@ function onPointerDown(event) {
       dragTextIndex = hit;
       const t = annotations[hit];
       dragOffset = { x: point.x - t.x, y: point.y - t.y };
+      dragSnapshot = snapshotGeometry(t);
       canvas.setPointerCapture(event.pointerId);
       setStatus("Dragging text.");
       return;
@@ -177,6 +197,7 @@ function onPointerDown(event) {
     const handle = hitTestHandle(point);
     if (handle) {
       resizeState = { index: selectedIndex, ...handle };
+      dragSnapshot = snapshotGeometry(annotations[selectedIndex]);
       canvas.setPointerCapture(event.pointerId);
       return;
     }
@@ -190,6 +211,7 @@ function onPointerDown(event) {
         a.type === "arrow"
           ? { x: point.x - a.x1, y: point.y - a.y1 }
           : { x: point.x - a.x, y: point.y - a.y };
+      dragSnapshot = snapshotGeometry(a);
       redraw();
       setStatus("Selected. Drag to move, drag handles to resize.");
     } else {
@@ -265,20 +287,34 @@ function onPointerUp(event) {
   }
 
   if (resizeState || dragTarget >= 0) {
+    const target = resizeState ? annotations[resizeState.index] : annotations[dragTarget];
+    const changed = geometryChanged(target, dragSnapshot);
     resizeState = null;
     dragTarget = -1;
     dragOffset = null;
-    commitHistory();
+    dragSnapshot = null;
+    if (changed) {
+      commitHistory();
+      setStatus("Annotation updated.");
+    } else {
+      setStatus("No change.");
+    }
     redraw();
-    setStatus("Annotation updated.");
     return;
   }
 
   if (dragTextIndex >= 0) {
+    const changed = geometryChanged(annotations[dragTextIndex], dragSnapshot);
     dragTextIndex = -1;
     dragOffset = null;
-    commitHistory();
-    setStatus("Text moved.");
+    dragSnapshot = null;
+    if (changed) {
+      commitHistory();
+      setStatus("Text moved.");
+    } else {
+      setStatus("No change.");
+    }
+    redraw();
     return;
   }
 
@@ -568,15 +604,12 @@ function drawHandles(ctx = context) {
     const fontSize = a.fontSize || FONT_SIZE;
     const width = measureTextWidth(a.value, fontSize, ctx);
     const height = fontSize * 1.2;
-    const corners = [
-      [a.x - 2, a.y - 2],
-      [a.x + width + 2, a.y - 2],
-      [a.x - 2, a.y + height + 2],
-      [a.x + width + 2, a.y + height + 2]
-    ];
-    for (const [hx, hy] of corners) {
-      drawHandleSquare(hx, hy, ctx);
-    }
+    // Text is not resizable — draw a plain dashed selection outline instead of
+    // corner squares (which would imply a resize affordance that doesn't exist).
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.strokeRect(a.x - 2, a.y - 2, width + 4, height + 4);
+    ctx.setLineDash([]);
   }
 }
 
@@ -818,6 +851,7 @@ function resetDragState() {
   dragTarget = -1;
   dragTextIndex = -1;
   dragOffset = null;
+  dragSnapshot = null;
   resizeState = null;
 }
 
