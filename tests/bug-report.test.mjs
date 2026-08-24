@@ -14,15 +14,23 @@ const bgSrc = readFileSync(join(root, "background.js"), "utf8");
 const pickerSrc = readFileSync(join(root, "element-picker.js"), "utf8");
 
 function fn(src, name) {
-  const start = src.indexOf(`function ${name}`);
-  assert.ok(start !== -1, `function ${name} not found`);
-  // crude brace match
-  let depth = 0, i = src.indexOf("{", start), end = -1;
-  for (; i < src.length; i++) {
-    if (src[i] === "{") depth++;
-    else if (src[i] === "}") { depth--; if (depth === 0) { end = i; break; } }
+  const decl = src.indexOf(`function ${name}`);
+  assert.ok(decl !== -1, `function ${name} not found`);
+  // Skip past the parameter list (handles destructured params like ({ rect }))
+  // so we find the function body's opening brace, not a param brace.
+  const parenStart = src.indexOf("(", decl);
+  let pdepth = 0, p = parenStart;
+  for (; p < src.length; p++) {
+    if (src[p] === "(") pdepth++;
+    else if (src[p] === ")") { pdepth--; if (pdepth === 0) break; }
   }
-  return src.slice(start, end + 1);
+  const bodyStart = src.indexOf("{", p);
+  let bdepth = 0, j = bodyStart;
+  for (; j < src.length; j++) {
+    if (src[j] === "{") bdepth++;
+    else if (src[j] === "}") { bdepth--; if (bdepth === 0) break; }
+  }
+  return src.slice(bodyStart, j + 1);
 }
 
 test("text renders multiple lines (B1)", () => {
@@ -61,5 +69,13 @@ test("crop guards zero viewport size (B5)", () => {
   assert.ok(
     /viewportWidth\s*===\s*0|viewportWidth\s*\|\||viewportWidth\s*&&\s*viewportWidth/.test(f),
     "cropSelectedArea divides by rect.viewportWidth with no zero guard"
+  );
+});
+
+test("full-page stitch does not paint transparent regions black (B6)", () => {
+  const f = fn(bgSrc, "stitchTiles");
+  assert.ok(
+    !f.includes("alpha: false"),
+    "stitchTiles must not use an opaque (alpha:false) canvas that turns transparent page regions black"
   );
 });

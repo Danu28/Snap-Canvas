@@ -454,8 +454,10 @@ function hitTestText(point) {
     const a = annotations[i];
     if (a.type !== "text") continue;
     const fontSize = a.fontSize || FONT_SIZE;
-    const width = measureTextWidth(a.value, fontSize);
-    const height = fontSize * 1.2;
+    const lineHeight = fontSize * 1.2;
+    const lines = String(a.value).split("\n");
+    const width = Math.max(...lines.map((l) => measureTextWidth(l, fontSize)), 0);
+    const height = lineHeight * lines.length;
     if (
       point.x >= a.x - 4 &&
       point.x <= a.x + width + 4 &&
@@ -602,8 +604,10 @@ function drawHandles(ctx = context) {
     drawHandleCircle(a.x2, a.y2, ctx);
   } else if (a.type === "text") {
     const fontSize = a.fontSize || FONT_SIZE;
-    const width = measureTextWidth(a.value, fontSize, ctx);
-    const height = fontSize * 1.2;
+    const lineHeight = fontSize * 1.2;
+    const lines = String(a.value).split("\n");
+    const width = Math.max(...lines.map((l) => measureTextWidth(l, fontSize, ctx)), 0);
+    const height = lineHeight * lines.length;
     // Text is not resizable — draw a plain dashed selection outline instead of
     // corner squares (which would imply a resize affordance that doesn't exist).
     ctx.lineWidth = 1;
@@ -651,7 +655,6 @@ function renderComposite() {
   for (const a of annotations) {
     drawAnnotation(a, compositeContext);
   }
-  drawHandles(compositeContext);
   return composite;
 }
 
@@ -743,9 +746,13 @@ function drawAnnotation(a, ctx = context) {
   }
 
   if (a.type === "text") {
-    ctx.font = `700 ${a.fontSize || FONT_SIZE}px Georgia, serif`;
+    const fontSize = a.fontSize || FONT_SIZE;
+    ctx.font = `700 ${fontSize}px Georgia, serif`;
     ctx.textBaseline = "top";
-    ctx.fillText(a.value, a.x, a.y);
+    const lineHeight = fontSize * 1.2;
+    String(a.value)
+      .split("\n")
+      .forEach((line, i) => ctx.fillText(line, a.x, a.y + i * lineHeight));
   }
 }
 
@@ -1021,7 +1028,7 @@ function onKeyDown(event) {
     return;
   }
 
-  if (event.key === "Delete" || event.key === "Backspace") {
+  if (event.key === "Delete") {
     deleteSelected();
     return;
   }

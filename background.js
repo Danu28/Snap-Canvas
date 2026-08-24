@@ -140,6 +140,21 @@ async function handleSelectedCapture({ rect }, sender) {
   const visibleDataUrl = await captureTabWithoutScrollbars(tabId, windowId);
   const croppedDataUrl = await cropSelectedArea(visibleDataUrl, rect);
   await storeCaptureAndOpenEditor({ dataUrl: croppedDataUrl, mode: "selected" });
+
+  // Element capture scrolls the page (picker scrollIntoView); restore the
+  // prior scroll so the user's page isn't left jumped to the element.
+  // Selected-area capture never scrolls, so it sends no scrollX/scrollY.
+  if (typeof rect.scrollX === "number" && typeof rect.scrollY === "number") {
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        func: (x, y) => window.scrollTo(x, y),
+        args: [rect.scrollX, rect.scrollY]
+      });
+    } catch {
+      // Page may have navigated; the capture itself already succeeded.
+    }
+  }
 }
 
 async function captureFullPage(tabId, windowId) {
@@ -399,8 +414,12 @@ async function stitchTiles(metrics, tiles) {
   const canvasWidth = Math.max(1, Math.round(metrics.fullWidth * scaleX));
   const canvasHeight = Math.max(1, Math.round(metrics.fullHeight * scaleY));
   const canvas = new OffscreenCanvas(canvasWidth, canvasHeight);
-  const context = canvas.getContext("2d", { alpha: false });
+  const context = canvas.getContext("2d", { alpha: true });
   context.imageSmoothingEnabled = false;
+  // Paint a white base so any transparent capture pixels (pages without an
+  // opaque background) composite as white instead of black.
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, canvasWidth, canvasHeight);
 
   const drawTile = (bitmap, tile) => {
     const destX = Math.floor(tile.x * scaleX);
@@ -439,8 +458,10 @@ async function stitchTiles(metrics, tiles) {
 
 async function cropSelectedArea(dataUrl, rect) {
   const bitmap = await decodeBitmap(dataUrl);
-  const scaleX = bitmap.width / rect.viewportWidth;
-  const scaleY = bitmap.height / rect.viewportHeight;
+  const vw = rect.viewportWidth || 1;
+  const vh = rect.viewportHeight || 1;
+  const scaleX = bitmap.width / vw;
+  const scaleY = bitmap.height / vh;
   const sx = Math.max(0, Math.min(bitmap.width, Math.floor(rect.left * scaleX)));
   const sy = Math.max(0, Math.min(bitmap.height, Math.floor(rect.top * scaleY)));
   const ex = Math.max(sx + 1, Math.min(bitmap.width, Math.ceil((rect.left + rect.width) * scaleX)));

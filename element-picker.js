@@ -126,6 +126,8 @@ if (!window.__pagesnapElementPickerLoaded) {
     // Scroll the element fully into view so the viewport capture can reach it
     // (background reads the ACTIVE tab viewport). 'instant' keeps the geometry
     // measured here consistent with the capture moment.
+    const priorScrollX = window.scrollX;
+    const priorScrollY = window.scrollY;
     currentTarget.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" });
 
     // Re-measure after any scroll.
@@ -145,7 +147,9 @@ if (!window.__pagesnapElementPickerLoaded) {
       width: rect.width,
       height: rect.height,
       viewportWidth: vw,
-      viewportHeight: vh
+      viewportHeight: vh,
+      scrollX: priorScrollX,
+      scrollY: priorScrollY
     };
     cleanup();
 
