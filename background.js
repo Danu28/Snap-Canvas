@@ -397,6 +397,7 @@ async function captureTabWithoutScrollbars(tabId, windowId) {
 
   try {
     await waitForPaint(tabId);
+    await waitForViewportImages(tabId);
     await assertTabActive(tabId, windowId);
     return await captureVisibleTabThrottled(windowId);
   } finally {

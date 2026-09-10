@@ -962,16 +962,19 @@ function fitToWidth() {
     parseFloat(wrapStyle.borderLeftWidth) + parseFloat(wrapStyle.borderRightWidth) +
     parseFloat(areaStyle.paddingLeft) + parseFloat(areaStyle.paddingRight);
   const available = Math.max(1, canvasArea.clientWidth - sideChrome);
-  const target = Math.min(available, captureImage.width);
-  setZoom(Math.min(1, target / captureImage.width));
+  const dpr = window.devicePixelRatio || 1;
+  const cssWidth = captureImage.width / dpr;
+  const target = Math.min(available, cssWidth);
+  setZoom(Math.min(1, target / cssWidth));
   canvasArea.scrollLeft = 0;
   canvasArea.scrollTop = 0;
 }
 
 function setZoom(value) {
   zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, value));
-  canvas.style.width = `${Math.round(captureImage.width * zoom)}px`;
-  canvas.style.height = `${Math.round(captureImage.height * zoom)}px`;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.style.width = `${Math.round((captureImage.width / dpr) * zoom)}px`;
+  canvas.style.height = `${Math.round((captureImage.height / dpr) * zoom)}px`;
   zoomLabel.textContent = `${Math.round(zoom * 100)}%`;
 }
 

@@ -348,7 +348,9 @@ body {
 }
 
 /* Photo layer: the capture renders here once (browser-decoded); the canvas
-   above holds only annotations, so redraws never re-composite the photo. */
+   above holds only annotations, so redraws never re-composite the photo.
+   image-rendering hints keep device-pixel captures crisp on high-DPR displays
+   (no browser upscaling blur) while still allowing smooth zoom. */
 #editorPhoto {
   position: absolute;
   inset: 0;
@@ -356,6 +358,8 @@ body {
   height: 100%;
   pointer-events: none;
   user-select: none;
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
 }
 
 #editorCanvas {
@@ -363,6 +367,7 @@ body {
   cursor: crosshair;
   position: relative;
   z-index: 1;
+  image-rendering: crisp-edges;
 }
 
 #editorCanvas.selecting {
