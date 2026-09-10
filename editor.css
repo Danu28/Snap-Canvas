@@ -9,6 +9,12 @@
   --accent-strong: #aa3910;
   --shadow: 0 24px 44px rgba(55, 33, 12, 0.14);
 }
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#1a1816; --panel:#24211e; --panel-strong:#2b2723; --text:#f5efe4; --muted:#b8a99a; --border:rgba(245,239,228,.14); --shadow:0 24px 44px rgba(0,0,0,.5); }
+  html,body{ background: radial-gradient(circle at top left, rgba(216,88,35,.16), transparent 30%), linear-gradient(180deg,#1a1816 0%, #121110 100%) !important; }
+  .toolbar{ background: rgba(36,33,30,.92); }
+  .canvas-wrap{ background: rgba(43,39,35,.9); }
+}
 
 * {
   box-sizing: border-box;
@@ -62,6 +68,11 @@ body {
   grid-template-columns: repeat(2, 1fr);
   gap: 10px;
 }
+/* Hierarchy: primary 4 tools, then redaction pair with divider */
+.tool-grid .tool-button:nth-child(4){ margin-bottom:2px; }
+.tool-grid::after{ content:""; grid-column:1 / -1; height:1px; background:var(--border); margin:2px 0; order:5; }
+.tool-grid .tool-button:nth-child(5), .tool-grid .tool-button:nth-child(6){ order:6; }
+.tool-button[data-tool="blur"], .tool-button[data-tool="pixel"]{ opacity:.92; }
 
 .tool-button {
   display: flex;
@@ -269,7 +280,21 @@ body {
   text-align: center;
   font-size: 13px;
   color: var(--muted);
+  cursor:pointer;
+  border:1px solid transparent;
+  border-radius:8px;
+  padding:4px 6px;
+  background:transparent;
+  font:inherit;
 }
+.zoom-label:hover{ border-color:var(--border); background:var(--panel-strong); }
+.toast{ position:fixed; left:50%; bottom:22px; transform:translateX(-50%) translateY(8px); background:rgba(24,21,17,.92); color:#fffaf2; padding:10px 14px; border-radius:12px; font-size:12px; line-height:1.4; opacity:0; pointer-events:none; transition:opacity 180ms, transform 180ms; z-index:60; max-width:min(92vw, 420px); text-align:center; }
+.toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+#helpModal{ border:1px solid var(--border); border-radius:16px; padding:20px; max-width:520px; width:92vw; background:var(--panel-strong); color:var(--text); box-shadow:var(--shadow); }
+#helpModal::backdrop{ background:rgba(17,17,17,.42); backdrop-filter:blur(2px); }
+.canvas-wrap .canvas-stack canvas:hover{ /* handle pulse hint via CSS filter on selection handled in JS redraw, but add subtle */ }
+@keyframes handlePulse{ 0%{ transform:scale(1)} 50%{ transform:scale(1.12)} 100%{ transform:scale(1)} }
+/* Pulse handles when hovering select tool: JS adds class via hover not needed; keep keyframes for future */
 
 .actions {
   display: grid;
@@ -292,6 +317,7 @@ body {
   line-height: 1.45;
   min-height: 19px;
 }
+/* Editor inherits popup toast var but ensure */
 
 .shortcuts {
   margin-top: 6px;

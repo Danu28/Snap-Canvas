@@ -39,7 +39,21 @@
       </button>
     </section>
 
+    <section id="historySection" class="history" aria-label="Recent captures" hidden>
+      <div class="history-head"><span>Recent</span><button id="clearHistory" class="link-btn" type="button">Clear</button></div>
+      <div id="historyStrip" class="history-strip"></div>
+    </section>
+
+    <details class="settings" id="settingsPanel">
+      <summary>Settings</summary>
+      <label class="field"><span>Filename template</span><input id="filenameTemplate" placeholder="pagesnap-{domain}-{date}-{mode}" spellcheck="false"><small>Vars: {domain} {date} {mode} {title}</small></label>
+      <label class="field"><span>Default color</span>
+        <select id="defaultColor"><option value="#43a047">Green</option><option value="#e53935">Red</option><option value="#1e88e5">Blue</option><option value="#fb8c00">Orange</option><option value="#212121">Black</option><option value="#fafafa">White</option></select>
+      </label>
+    </details>
+
     <p id="status" class="status" role="status" aria-live="polite"></p>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
   </main>
 
   <script src="popup.js" type="module"></script>

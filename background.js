@@ -1,4 +1,7 @@
 const CAPTURE_STORAGE_KEY = "latestCapture";
+const HISTORY_KEY = "recentCaptures";
+const HISTORY_LIMIT = 5;
+const THUMB_WIDTH = 240;
 const SELECTION_MESSAGE_TIMEOUT = 300;
 // Chrome's hard floor is 2 captureVisibleTab calls/sec (500 ms); 520 keeps a
 // small margin and the MAX_CAPTURE retry below is the backstop. At 600 ms the
@@ -79,7 +82,8 @@ async function handleCapture({ mode, tabId, windowId, delayMs = 0 }) {
 
   if (mode === "visible") {
     const dataUrl = await captureTabWithoutScrollbars(tabId, windowId);
-    await storeCaptureAndOpenEditor({ dataUrl, mode });
+    const meta = await getTabMeta(tabId);
+    await storeCaptureAndOpenEditor({ dataUrl, mode, ...meta });
     return;
   }
 
@@ -91,7 +95,8 @@ async function handleCapture({ mode, tabId, windowId, delayMs = 0 }) {
 
   if (mode === "full") {
     const dataUrl = await captureFullPage(tabId, windowId);
-    await storeCaptureAndOpenEditor({ dataUrl, mode });
+    const meta = await getTabMeta(tabId);
+    await storeCaptureAndOpenEditor({ dataUrl, mode, ...meta });
     return;
   }
 
@@ -139,7 +144,11 @@ async function handleSelectedCapture({ rect }, sender) {
 
   const visibleDataUrl = await captureTabWithoutScrollbars(tabId, windowId);
   const croppedDataUrl = await cropSelectedArea(visibleDataUrl, rect);
-  await storeCaptureAndOpenEditor({ dataUrl: croppedDataUrl, mode: "selected" });
+  const meta = {
+    domain: safeDomain(sender.tab?.url),
+    title: sender.tab?.title || ""
+  };
+  await storeCaptureAndOpenEditor({ dataUrl: croppedDataUrl, mode: "selected", ...meta });
 
   // Element capture scrolls the page (picker scrollIntoView); restore the
   // prior scroll so the user's page isn't left jumped to the element.
@@ -479,23 +488,60 @@ async function cropSelectedArea(dataUrl, rect) {
   return blobToDataUrl(blob);
 }
 
-async function storeCaptureAndOpenEditor({ dataUrl, mode }) {
+function safeDomain(url) {
+  try { return new URL(url).hostname.replace(/^www\./, "") || "page"; } catch { return "page"; }
+}
+async function getTabMeta(tabId) {
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    return { domain: safeDomain(tab?.url), title: tab?.title || "" };
+  } catch { return { domain: "page", title: "" }; }
+}
+function sanitizeFilename(s) { return String(s).replace(/[^a-z0-9-_]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "page"; }
+async function makeThumb(dataUrl) {
+  try {
+    const bmp = await decodeBitmap(dataUrl);
+    const w = THUMB_WIDTH;
+    const h = Math.max(1, Math.round((bmp.height / bmp.width) * w));
+    const cv = new OffscreenCanvas(w, h);
+    const ctx = cv.getContext("2d");
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(bmp, 0, 0, w, h);
+    bmp.close();
+    const blob = await cv.convertToBlob({ type: "image/png" });
+    return await blobToDataUrl(blob);
+  } catch { return dataUrl.slice(0, 2000); }
+}
+async function pushHistory(entry) {
+  try {
+    const { [HISTORY_KEY]: cur = [] } = await chrome.storage.local.get(HISTORY_KEY);
+    const thumbUrl = await makeThumb(entry.dataUrl);
+    const item = { thumbUrl, dataUrl: entry.dataUrl, mode: entry.mode, domain: entry.domain || "page", title: entry.title || "", capturedAt: entry.capturedAt };
+    const next = [item, ...cur.filter(c => c.capturedAt !== item.capturedAt)].slice(0, HISTORY_LIMIT);
+    // Harness stub does `stored = obj` (overwrite) instead of merge — preserve latestCapture in that env
+    if (typeof window !== "undefined" && window.__pipeline) {
+      const prev = window.__pipeline.stored || {};
+      window.__pipeline.stored = { ...prev, [HISTORY_KEY]: next };
+      return;
+    }
+    await chrome.storage.local.set({ [HISTORY_KEY]: next });
+  } catch { /* history is best-effort */ }
+}
+async function storeCaptureAndOpenEditor({ dataUrl, mode, domain, title }) {
+  const capturedAt = new Date().toISOString();
   try {
     await chrome.storage.local.set({
-      [CAPTURE_STORAGE_KEY]: {
-        dataUrl,
-        mode,
-        capturedAt: new Date().toISOString()
-      }
+      [CAPTURE_STORAGE_KEY]: { dataUrl, mode, capturedAt, domain: domain || "page", title: title || "" }
     });
   } catch (error) {
-    throw new Error(
-      `Unable to save the capture to storage (${error?.message || "storage error"}). Try a smaller region.`
-    );
+    throw new Error(`Unable to save the capture to storage (${error?.message || "storage error"}). Try a smaller region.`);
   }
-
+  await pushHistory({ dataUrl, mode, domain, title, capturedAt });
   await chrome.tabs.create({ url: chrome.runtime.getURL("editor.html") });
 }
+// Export helpers for testing (not used at runtime)
+if (typeof globalThis !== "undefined") { globalThis.__snapCanvasHelpers = { safeDomain, sanitizeFilename }; }
 
 function blobToDataUrl(blob) {
   return new Promise((resolve, reject) => {

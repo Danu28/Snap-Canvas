@@ -24,6 +24,10 @@ const fontSizeDec = document.querySelector("#fontSizeDec");
 const fontSizeInc = document.querySelector("#fontSizeInc");
 const context = canvas.getContext("2d");
 const statusElement = document.querySelector("#editorStatus");
+const helpModal = document.querySelector("#helpModal");
+const helpButton = document.querySelector("#helpButton");
+const toastEl = document.querySelector("#toast");
+const SETTINGS_KEY = "snapCanvasSettings";
 const toolButtons = [...document.querySelectorAll(".tool-button")];
 const colorSwatches = [...document.querySelectorAll(".color-swatch")];
 const undoButton = document.querySelector("#undoButton");
@@ -35,6 +39,8 @@ const downloadButton = document.querySelector("#downloadButton");
 let captureImage = null;
 let currentTool = "rectangle";
 let activeColor = "#43a047";
+let captureMeta = null;
+let toastTimer = null;
 let annotations = [];
 let historyStack = [[]];
 let redoStack = [];
@@ -65,6 +71,14 @@ initialize().catch((error) => {
   setStatus(error.message || "Unable to initialize editor.");
 });
 
+function showToast(msg, ms = 2400){ if(!toastEl) return setStatus(msg); toastEl.textContent = msg; toastEl.classList.add("show"); clearTimeout(toastTimer); toastTimer=setTimeout(()=>toastEl.classList.remove("show"), ms); }
+async function loadPresets(){
+  try{ const { [SETTINGS_KEY]: s={} } = await chrome.storage.local.get(SETTINGS_KEY); if(s.defaultColor) activeColor = s.defaultColor; if(typeof s.fontSize==="number") activeFontSize = Math.min(FONT_MAX, Math.max(FONT_MIN, s.fontSize)); }catch{}
+  // sync swatches
+  colorSwatches.forEach(sw=> sw.classList.toggle("is-active", sw.dataset.color === activeColor));
+  fontSizeInput.value = String(activeFontSize);
+}
+async function persistPreset(){ try{ const { [SETTINGS_KEY]: cur={} } = await chrome.storage.local.get(SETTINGS_KEY); await chrome.storage.local.set({ [SETTINGS_KEY]: { ...cur, defaultColor: activeColor, fontSize: activeFontSize }});}catch{} }
 async function initialize() {
   const stored = await chrome.storage.local.get(STORAGE_KEY);
   const capture = stored[STORAGE_KEY];
@@ -72,7 +86,7 @@ async function initialize() {
   if (!capture?.dataUrl) {
     throw new Error("No captured image found. Take a screenshot first.");
   }
-
+  captureMeta = capture;
   captureImage = await loadImage(capture.dataUrl);
   canvas.width = captureImage.width;
   canvas.height = captureImage.height;
@@ -81,6 +95,7 @@ async function initialize() {
   if (photo) {
     photo.src = capture.dataUrl;
   }
+  await loadPresets();
   fitToWidth();
   annotations = [];
   historyStack = [[]];
@@ -88,9 +103,7 @@ async function initialize() {
   redraw();
   bindEvents();
   updateActionStates();
-  setStatus(
-    `Ready to annotate your ${capture.mode} capture.${getExtensionVersion() ? ` (v${getExtensionVersion()})` : ""}`
-  );
+  setStatus(`Ready to annotate your ${capture.mode} capture.${getExtensionVersion() ? ` (v${getExtensionVersion()})` : ""}`);
   console.info("SnapCanvas editor ready", getExtensionVersion() || "(unknown version)");
 }
 
@@ -116,6 +129,11 @@ function bindEvents() {
     button.addEventListener("click", () => {
       activeColor = button.dataset.color;
       colorSwatches.forEach((swatch) => swatch.classList.toggle("is-active", swatch === button));
+      persistPreset();
+      if (selectedIndex >= 0) {
+        const a = annotations[selectedIndex];
+        if (a.color !== activeColor) { a.color = activeColor; commitHistory(); redraw(); setStatus("Color applied to selection."); showToast("Color updated"); return; }
+      }
       setStatus(`Color: ${(button.title || activeColor).toLowerCase()}.`);
     });
   });
@@ -131,6 +149,8 @@ function bindEvents() {
   zoomInButton.addEventListener("click", () => setZoom(zoom * ZOOM_STEP));
   zoomOutButton.addEventListener("click", () => setZoom(zoom / ZOOM_STEP));
   fitButton.addEventListener("click", fitToWidth);
+  zoomLabel.addEventListener("click", () => setZoom(1));
+  helpButton?.addEventListener("click", () => helpModal?.showModal());
   window.addEventListener("keydown", onKeyDown);
   window.addEventListener("keyup", onKeyUp);
   fontSizeDec.addEventListener("click", () => applyFontSize(activeFontSize - 2));
@@ -139,7 +159,7 @@ function bindEvents() {
     const value = parseInt(fontSizeInput.value, 10);
     if (Number.isFinite(value)) activeFontSize = value;
   });
-  fontSizeInput.addEventListener("change", () => applyFontSize(fontSizeInput.value));
+  fontSizeInput.addEventListener("change", () => { applyFontSize(fontSizeInput.value); persistPreset(); });
 }
 
 // Geometry snapshot for no-op-commit suppression: capture the annotation's
@@ -897,12 +917,29 @@ function cloneAnnotations(list) {
   return list.map((a) => ({ ...a }));
 }
 
-function downloadImage() {
+function sanitize(s){ return String(s||"page").replace(/[^a-z0-9-_]+/gi,"-").replace(/^-+|-+$/g,"").slice(0,40)||"page"; }
+async function buildFilename(){
+  try{
+    const { [SETTINGS_KEY]: s={} } = await chrome.storage.local.get(SETTINGS_KEY);
+    const tpl = (s.filenameTemplate || "pagesnap-{domain}-{date}-{mode}").trim() || "pagesnap-{domain}-{date}-{mode}";
+    const domain = sanitize(captureMeta?.domain || "page");
+    const mode = captureMeta?.mode || "capture";
+    const title = sanitize(captureMeta?.title || "");
+    const d = new Date();
+    const date = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    let name = tpl.replaceAll("{domain}", domain).replaceAll("{date}", date).replaceAll("{mode}", mode).replaceAll("{title}", title);
+    name = name.replace(/[^a-z0-9-_\.]+/gi,"-").replace(/-+/g,"-").replace(/^-+|-+$/g,"");
+    if(!name.toLowerCase().endsWith(".png")) name += ".png";
+    return name;
+  }catch{ return `pagesnap-${Date.now()}.png`; }
+}
+async function downloadImage() {
   const link = document.createElement("a");
   link.href = renderComposite().toDataURL("image/png");
-  link.download = `pagesnap-${Date.now()}.png`;
+  link.download = await buildFilename();
   link.click();
   setStatus("PNG download started.");
+  showToast(`Saved ${link.download}`);
 }
 
 async function copyImage() {
@@ -929,6 +966,7 @@ async function copyImage() {
 
 function setStatus(message) {
   statusElement.textContent = message;
+  // also toast for important actions (errors already toasted via showToast where needed)
 }
 
 // Keep undo/redo/clear affordances honest: grey them out (but keep them
@@ -947,6 +985,13 @@ function applyFontSize(value) {
   size = Math.min(FONT_MAX, Math.max(FONT_MIN, size));
   activeFontSize = size;
   fontSizeInput.value = String(size);
+  persistPreset();
+  if (selectedIndex >= 0 && annotations[selectedIndex]?.type === "text") {
+    annotations[selectedIndex].fontSize = size;
+    commitHistory();
+    redraw();
+    showToast(`Text size ${size}px`);
+  }
 }
 
 function fitToWidth() {
@@ -996,10 +1041,32 @@ function startPan(event) {
   canvasWrap.classList.add("panning");
 }
 
+function nudgeSelected(dx, dy){
+  if (selectedIndex < 0) return false;
+  const a = annotations[selectedIndex];
+  if (a.type === "arrow") { a.x1 += dx; a.y1 += dy; a.x2 += dx; a.y2 += dy; }
+  else { a.x += dx; a.y += dy; }
+  redraw();
+  return true;
+}
 function onKeyDown(event) {
   const activeTag = document.activeElement?.tagName || "";
   if (activeTag === "TEXTAREA" || activeTag === "INPUT") {
     return; // typing in the text editor — browser handles its own keys
+  }
+
+  if (event.key === "?" && !event.ctrlKey && !event.metaKey) { helpModal?.showModal(); event.preventDefault(); return; }
+
+  // Arrow nudge for selected annotation
+  if (selectedIndex >= 0 && ["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(event.key)) {
+    const step = event.shiftKey ? 10 : 1;
+    let dx=0, dy=0;
+    if(event.key==="ArrowUp") dy=-step;
+    if(event.key==="ArrowDown") dy=step;
+    if(event.key==="ArrowLeft") dx=-step;
+    if(event.key==="ArrowRight") dx=step;
+    if(nudgeSelected(dx, dy)){ event.preventDefault(); commitHistory(); setStatus(`Nudged ${step}px`); }
+    return;
   }
 
   if (event.code === "Escape" && selectedIndex >= 0) {
@@ -1008,6 +1075,8 @@ function onKeyDown(event) {
     setStatus("Deselected.");
     return;
   }
+
+  if (event.code === "Escape" && helpModal?.open) { helpModal.close(); return; }
 
   if (event.key === "Delete") {
     deleteSelected();
