@@ -59,6 +59,7 @@ let selectedIndex = -1;
 let dragTarget = -1;
 let resizeState = null;
 let dragSnapshot = null; // annotation geometry at drag/resize start (no-op-commit suppression)
+let cachedRect = null; // ponytail: cached bounding rect during drag to avoid layout thrash (invalidated on up/zoom)
 // measureText widths are deterministic per (value, fontSize) and zoom-independent
 // (canvas-space metrics) — cached so select-mode pointermoves don't re-shape text.
 const textWidthCache = new Map();
@@ -184,8 +185,8 @@ function onPointerDown(event) {
   if (textEditor) {
     return; // the blur handler commits the open text editor
   }
-
-  const point = getCanvasPoint(event);
+  cachedRect = canvas.getBoundingClientRect();
+  const point = getCanvasPoint(event, cachedRect);
 
   if (spaceDown || event.button === 1) {
     startPan(event);
@@ -264,6 +265,7 @@ function onPointerMove(event) {
 
   if (dragTarget >= 0) {
     const a = annotations[dragTarget];
+    invalidateRedactCache(a);
     if (a.type === "arrow") {
       const nextX1 = point.x - dragOffset.x;
       const nextY1 = point.y - dragOffset.y;
@@ -296,6 +298,7 @@ function onPointerMove(event) {
 }
 
 function onPointerUp(event) {
+  cachedRect = null;
   if (panning) {
     panning = false;
     panStart = null;
@@ -560,6 +563,7 @@ function hitTestHandle(point) {
 
 function applyResize(state, point) {
   const a = annotations[state.index];
+  invalidateRedactCache(a);
   if (state.kind === "arrow") {
     if (state.handle === "start") {
       a.x1 = point.x;
@@ -596,6 +600,7 @@ function applyResize(state, point) {
   }
 
   Object.assign(a, { x: nextX, y: nextY, width: nextWidth, height: nextHeight });
+  invalidateRedactCache(a);
 }
 
 function drawHandles(ctx = context) {
@@ -708,35 +713,46 @@ function drawPreview(from, to) {
 // tint. Shared by display redraw, drag preview, and renderComposite so the
 // export shows exactly what the canvas shows. The 1:1 dest==source mapping
 // keeps the region pixel-aligned with the photo layer.
+// ponytail: per-annotation offscreen cache — O(1) per frame instead of O(area) drawImage loop (pixelate) / blur filter per frame
+function ensureRedactCache(a) {
+  if (a._cache && a._cacheW === a.width && a._cacheH === a.height) return a._cache;
+  const w = Math.max(1, Math.round(a.width));
+  const h = Math.max(1, Math.round(a.height));
+  const off = new OffscreenCanvas(w, h);
+  const octx = off.getContext("2d");
+  octx.imageSmoothingEnabled = false;
+  if (a.mode === "pixel") {
+    for (let by = 0; by < h; by += REDACT_CELL) {
+      const ch = Math.min(REDACT_CELL, h - by);
+      for (let bx = 0; bx < w; bx += REDACT_CELL) {
+        const cw = Math.min(REDACT_CELL, w - bx);
+        octx.drawImage(captureImage, a.x + bx + cw / 2, a.y + by + ch / 2, 1, 1, bx, by, cw, ch);
+      }
+    }
+  } else {
+    const right = Math.min(captureImage.width, a.x + w + REDACT_RADIUS);
+    const bottom = Math.min(captureImage.height, a.y + h + REDACT_RADIUS);
+    const sx = Math.max(0, a.x - REDACT_RADIUS);
+    const sy = Math.max(0, a.y - REDACT_RADIUS);
+    const sw = right - sx;
+    const sh = bottom - sy;
+    octx.filter = `blur(${REDACT_RADIUS}px)`;
+    octx.drawImage(captureImage, sx, sy, sw, sh, sx - a.x, sy - a.y, sw, sh);
+    octx.filter = "none";
+  }
+  a._cache = off;
+  a._cacheW = a.width;
+  a._cacheH = a.height;
+  return off;
+}
+function invalidateRedactCache(a){ if(a) { delete a._cache; delete a._cacheW; delete a._cacheH; } }
 function drawRedact(a, ctx) {
   ctx.save();
   ctx.beginPath();
   ctx.rect(a.x, a.y, a.width, a.height);
   ctx.clip();
-
-  if (a.mode === "pixel") {
-    // Solid-cell pixelate without any filtering dependency: each cell is drawn
-    // from a single source pixel, so even a smoothed upscale of a 1x1 source
-    // yields a flat block — identical on any rasterizer, display and export
-    // match by construction.
-    ctx.imageSmoothingEnabled = false;
-    for (let by = a.y; by < a.y + a.height; by += REDACT_CELL) {
-      const h = Math.min(REDACT_CELL, a.y + a.height - by);
-      for (let bx = a.x; bx < a.x + a.width; bx += REDACT_CELL) {
-        const w = Math.min(REDACT_CELL, a.x + a.width - bx);
-        ctx.drawImage(captureImage, bx + w / 2, by + h / 2, 1, 1, bx, by, w, h);
-      }
-    }
-  } else {
-    const right = Math.min(captureImage.width, a.x + a.width + REDACT_RADIUS);
-    const bottom = Math.min(captureImage.height, a.y + a.height + REDACT_RADIUS);
-    const sx = Math.max(0, a.x - REDACT_RADIUS);
-    const sy = Math.max(0, a.y - REDACT_RADIUS);
-    ctx.filter = `blur(${REDACT_RADIUS}px)`;
-    ctx.drawImage(captureImage, sx, sy, right - sx, bottom - sy, sx, sy, right - sx, bottom - sy);
-    ctx.filter = "none";
-  }
-
+  const cached = ensureRedactCache(a);
+  ctx.drawImage(cached, a.x, a.y);
   ctx.fillStyle = REDACT_TINT;
   ctx.fillRect(a.x, a.y, a.width, a.height);
   ctx.restore();
@@ -914,7 +930,7 @@ function commitHistory() {
 }
 
 function cloneAnnotations(list) {
-  return list.map((a) => ({ ...a }));
+  return list.map((a) => { const { _cache, _cacheW, _cacheH, ...rest } = a; return { ...rest }; });
 }
 
 function sanitize(s){ return String(s||"page").replace(/[^a-z0-9-_]+/gi,"-").replace(/^-+|-+$/g,"").slice(0,40)||"page"; }
@@ -1044,6 +1060,7 @@ function startPan(event) {
 function nudgeSelected(dx, dy){
   if (selectedIndex < 0) return false;
   const a = annotations[selectedIndex];
+  invalidateRedactCache(a);
   if (a.type === "arrow") { a.x1 += dx; a.y1 += dy; a.x2 += dx; a.y2 += dy; }
   else { a.x += dx; a.y += dy; }
   redraw();
@@ -1121,14 +1138,14 @@ function onKeyUp(event) {
   }
 }
 
-function getCanvasPoint(event) {
-  const rect = canvas.getBoundingClientRect();
-  const scaleX = canvas.width / rect.width;
-  const scaleY = canvas.height / rect.height;
+function getCanvasPoint(event, rect = cachedRect) {
+  const r = rect || canvas.getBoundingClientRect();
+  const scaleX = canvas.width / r.width;
+  const scaleY = canvas.height / r.height;
 
   return {
-    x: (event.clientX - rect.left) * scaleX,
-    y: (event.clientY - rect.top) * scaleY
+    x: (event.clientX - r.left) * scaleX,
+    y: (event.clientY - r.top) * scaleY
   };
 }
 
