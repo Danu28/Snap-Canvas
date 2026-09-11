@@ -6,4 +6,7 @@ devloop.js
 
 # Editor/agent harness runtime state
 .harness/
+
+# Browser-test artifacts (screenshots / downloaded captures)
+artifacts/
 suggestion.html

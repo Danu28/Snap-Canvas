@@ -13,17 +13,19 @@ SnapCanvas is a Chrome extension for capturing and annotating screenshots of the
 - Annotation tools: rectangle, arrow, movable text, select, redaction (blur & pixelate)
   - Redaction: drag an area to blur or pixelate it; select/move/resize/delete/duplicate/undo/redo apply like any annotation; exports show exactly what the editor shows
   - Select tool: move, resize (rectangle corners, arrow endpoints), delete (`Del`), duplicate (`Ctrl+D`)
-  - Inline text editing on the canvas (no browser prompt), multi-line, font size 14 / 22 / 32 px
-- Editor zoom & pan: fit-to-width, mouse-wheel zoom (0.25x–8x), space-drag or middle-drag to pan
+  - Inline text editing on the canvas (no browser prompt), multi-line, font size 8–200 px (stepper)
+  - Crop to selection: select a rectangle/redaction then Crop to Selection (shifts annotations, undoable)
+  - Auto-save: annotations auto-saved to session storage, restores on reload
+  - Tool accelerators: R/A/T/S/B/P/0 (fit) and ? help
+- Editor zoom & pan: fit-to-width (0), zoom 0.25x–8x, space-drag or middle-drag to pan
 - Colors: green (default), red, blue, orange, black, white (fixed swatches)
 - Undo / redo (`Ctrl+Z`, `Ctrl+Shift+Z`), copy image, and PNG download
 
 ## Limitations & notes
 
-- **Fixed/sticky elements are omitted** from full-page captures. Elements with
+- **Fixed/sticky elements are omitted** from full-page captures by default. Elements with
   `position: fixed` or `position: sticky` are hidden while tiles are captured
-  (otherwise they'd repeat in every tile) and so do not appear in the stitched
-  output. Use a visible-area capture if the sticky header itself is the subject.
+  (otherwise they'd repeat in every tile). Check **Include sticky header** in the popup to keep sticky headers visible (fixed still hidden).
 - **Element capture is viewport-bounded.** The element picker scrolls the target
   into view and captures the visible area; an element taller or wider than the
   viewport is not captured — the picker re-arms with a hint instead of shipping

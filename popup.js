@@ -1,3 +1,5 @@
+import { DEFAULT_TEMPLATE, buildFilenameFrom } from "./shared.js";
+
 const statusElement = document.querySelector("#status");
 const toastEl = document.querySelector("#toast");
 const buttons = [...document.querySelectorAll(".capture-button")];
@@ -7,13 +9,16 @@ const historyStrip = document.querySelector("#historyStrip");
 const clearHistoryBtn = document.querySelector("#clearHistory");
 const tplInput = document.querySelector("#filenameTemplate");
 const colorInput = document.querySelector("#defaultColor");
+const includeStickyInput = document.querySelector("#includeSticky");
+const previewEl = document.querySelector("#filenamePreview");
 let countdownTimer = null;
 let toastTimer = null;
 
 const SETTINGS_KEY = "snapCanvasSettings";
 const HISTORY_KEY = "recentCaptures";
 const CAPTURE_KEY = "latestCapture";
-const DEFAULTS = { filenameTemplate: "pagesnap-{domain}-{date}-{mode}", defaultColor: "#43a047" };
+const LAST_ERROR_KEY = "lastCaptureError";
+const DEFAULTS = { filenameTemplate: DEFAULT_TEMPLATE, defaultColor: "#43a047", includeSticky: false };
 
 function setStatus(message, isError = false) {
   statusElement.textContent = message;
@@ -27,22 +32,47 @@ function toast(msg, ms = 2200) {
   toastTimer = setTimeout(() => toastEl.classList.remove("show"), ms);
 }
 
+function updatePreview(){
+  if(!previewEl || !tplInput) return;
+  const tpl = tplInput.value.trim() || DEFAULT_TEMPLATE;
+  const preview = buildFilenameFrom(tpl, { domain: "example.com", title: "Example Title", mode: "full" });
+  const over = tpl.length > 80 ? " (template is long — final name is truncated)" : "";
+  previewEl.textContent = `Preview: ${preview}${over}`;
+}
+
 async function loadSettings() {
   try {
     const { [SETTINGS_KEY]: s = {} } = await chrome.storage.local.get(SETTINGS_KEY);
     const cur = { ...DEFAULTS, ...s };
     if (tplInput) tplInput.value = cur.filenameTemplate;
     if (colorInput) colorInput.value = cur.defaultColor;
+    if (includeStickyInput) includeStickyInput.checked = !!cur.includeSticky;
+    updatePreview();
     return cur;
-  } catch { return DEFAULTS; }
+  } catch { updatePreview(); return DEFAULTS; }
 }
 async function saveSettings() {
   const next = {
     filenameTemplate: tplInput?.value?.trim() || DEFAULTS.filenameTemplate,
-    defaultColor: colorInput?.value || DEFAULTS.defaultColor
+    defaultColor: colorInput?.value || DEFAULTS.defaultColor,
+    includeSticky: !!includeStickyInput?.checked
   };
   await chrome.storage.local.set({ [SETTINGS_KEY]: next });
+  updatePreview();
   toast("Settings saved");
+}
+
+async function showLastErrorIfAny(){
+  try{
+    const { [LAST_ERROR_KEY]: err } = await chrome.storage.local.get(LAST_ERROR_KEY);
+    if(err?.message && Date.now() - (err.at||0) < 30000){
+      setStatus(err.message, true);
+      toast(err.message);
+      // clear after shown
+      await chrome.storage.local.remove(LAST_ERROR_KEY);
+      try{ await chrome.action.setBadgeText({text:""}); }catch{}
+    }
+  }catch{}
 }
 
 async function renderHistory() {
@@ -56,7 +86,9 @@ async function renderHistory() {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "history-item";
-      btn.title = `${item.domain} — ${new Date(item.capturedAt).toLocaleString()}`;
+      btn.setAttribute("role","listitem");
+      btn.tabIndex = 0;
+      btn.title = `${item.domain} — ${new Date(item.capturedAt).toLocaleString()} (Enter to open)`;
       const img = document.createElement("img");
       img.src = item.thumbUrl || item.dataUrl;
       img.alt = "";
@@ -64,10 +96,12 @@ async function renderHistory() {
       const label = document.createElement("span");
       label.textContent = `${item.domain} · ${item.mode}`;
       btn.append(img, label);
-      btn.addEventListener("click", async () => {
+      async function openHistory(){
         await chrome.storage.local.set({ [CAPTURE_KEY]: { dataUrl: item.dataUrl, mode: item.mode, capturedAt: new Date().toISOString(), domain: item.domain, title: item.title } });
         chrome.tabs.create({ url: chrome.runtime.getURL("editor.html") });
-      });
+      }
+      btn.addEventListener("click", openHistory);
+      btn.addEventListener("keydown", (e)=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); openHistory(); } });
       historyStrip.appendChild(btn);
     }
   } catch { historySection.hidden = true; }
@@ -75,13 +109,14 @@ async function renderHistory() {
 
 async function capture(mode) {
   const delayMs = parseInt(delaySelect.value, 10) || 0;
+  const includeSticky = !!includeStickyInput?.checked;
   delaySelect.disabled = mode === "selected";
   setStatus(`Starting ${mode} capture...`);
   buttons.forEach((b) => (b.disabled = true));
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id || !tab.windowId) throw new Error("No active tab available.");
-    const response = await chrome.runtime.sendMessage({ type: "START_CAPTURE", mode, tabId: tab.id, windowId: tab.windowId, delayMs });
+    const response = await chrome.runtime.sendMessage({ type: "START_CAPTURE", mode, tabId: tab.id, windowId: tab.windowId, delayMs, includeSticky });
     if (!response?.ok) throw new Error(response?.error || "Capture failed.");
     if (mode === "selected") { window.close(); return; }
     if (delayMs > 0) runCountdown(delayMs);
@@ -113,12 +148,19 @@ clearHistoryBtn?.addEventListener("click", async () => {
   renderHistory();
   toast("History cleared");
 });
+tplInput?.addEventListener("input", updatePreview);
 tplInput?.addEventListener("change", saveSettings);
 colorInput?.addEventListener("change", saveSettings);
+includeStickyInput?.addEventListener("change", saveSettings);
 
 // Init
 loadSettings();
 renderHistory();
+showLastErrorIfAny();
 chrome.storage.onChanged?.addListener((changes) => {
   if (changes[HISTORY_KEY]) renderHistory();
+  if (changes[LAST_ERROR_KEY] && changes[LAST_ERROR_KEY].newValue) {
+    const err = changes[LAST_ERROR_KEY].newValue;
+    if(err?.message) { setStatus(err.message, true); toast(err.message); }
+  }
 });

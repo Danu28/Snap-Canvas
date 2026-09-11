@@ -1,3 +1,5 @@
+import { buildFilenameFrom } from "./shared.js";
+
 const STORAGE_KEY = "latestCapture";
 const STROKE = 4;
 const FONT_SIZE = 22;
@@ -7,6 +9,9 @@ const ZOOM_MIN = 0.25;
 const ZOOM_MAX = 8;
 const ZOOM_STEP = 1.25;
 const HISTORY_LIMIT = 50;
+const AUTO_SAVE_KEY = "snapCanvasAutoSave";
+const IDB_NAME = "snapCanvasCaptures";
+const IDB_STORE = "captures";
 const REDACT_RADIUS = 24;
 const REDACT_CELL = 12;
 const REDACT_TINT = "rgba(0, 0, 0, 0.18)";
@@ -35,6 +40,7 @@ const redoButton = document.querySelector("#redoButton");
 const copyButton = document.querySelector("#copyButton");
 const clearButton = document.querySelector("#clearButton");
 const downloadButton = document.querySelector("#downloadButton");
+const cropButton = document.querySelector("#cropButton");
 
 let captureImage = null;
 let currentTool = "rectangle";
@@ -63,6 +69,10 @@ let cachedRect = null; // ponytail: cached bounding rect during drag to avoid la
 // measureText widths are deterministic per (value, fontSize) and zoom-independent
 // (canvas-space metrics) — cached so select-mode pointermoves don't re-shape text.
 const textWidthCache = new Map();
+let autoSaveTimer = null;
+let nudgeTimer = null;
+let nudgeGroupStart = null;
+let nudgeGrouping = false;
 
 colorSwatches.forEach((btn) => {
   btn.style.setProperty("--swatch", btn.dataset.color);
@@ -79,22 +89,85 @@ async function loadPresets(){
   colorSwatches.forEach(sw=> sw.classList.toggle("is-active", sw.dataset.color === activeColor));
   fontSizeInput.value = String(activeFontSize);
 }
+function idbOpen(){ return new Promise((resolve,reject)=>{ try{ const r=indexedDB.open(IDB_NAME,1); r.onupgradeneeded=()=>r.result.createObjectStore(IDB_STORE); r.onsuccess=()=>resolve(r.result); r.onerror=()=>reject(r.error);}catch(e){reject(e);} }); }
+async function getCaptureDataUrl(capture){
+  if(capture?.dataUrl) return capture.dataUrl;
+  if(capture?.idb && capture?.captureId){
+    try{ const db=await idbOpen(); const tx=db.transaction(IDB_STORE,"readonly"); const req=tx.objectStore(IDB_STORE).get(capture.captureId); const url=await new Promise((res,rej)=>{ req.onsuccess=()=>res(req.result); req.onerror=()=>rej(req.error);}); db.close(); if(url) return url; }catch{}
+  }
+  if(capture?.captureId){
+    try{ const resp=await chrome.runtime.sendMessage({type:"GET_CAPTURE_BLOB", id:capture.captureId}); if(resp?.ok && resp.dataUrl) return resp.dataUrl; }catch{}
+  }
+  return null;
+}
+function scheduleAutoSave(){
+  clearTimeout(autoSaveTimer);
+  autoSaveTimer=setTimeout(async()=>{
+    try{
+      const payload={ captureId: captureMeta?.captureId || captureMeta?.capturedAt || "default", annotations: cloneAnnotations(annotations), at: Date.now() };
+      if(chrome.storage.session) await chrome.storage.session.set({ [AUTO_SAVE_KEY]: payload });
+      else await chrome.storage.local.set({ [AUTO_SAVE_KEY]: payload });
+    }catch{}
+  }, 800);
+}
+async function restoreAutoSave(){
+  try{
+    let stored = null;
+    if(chrome.storage.session) { const r=await chrome.storage.session.get(AUTO_SAVE_KEY); stored=r[AUTO_SAVE_KEY]; }
+    if(!stored){ const r=await chrome.storage.local.get(AUTO_SAVE_KEY); stored=r[AUTO_SAVE_KEY]; }
+    if(!stored || !stored.annotations || !Array.isArray(stored.annotations)) return;
+    const curId = captureMeta?.captureId || captureMeta?.capturedAt;
+    if(stored.captureId !== curId) return;
+    if(stored.annotations.length===0) return;
+    if(Date.now() - (stored.at||0) > 3600000) return;
+    showRestoreBanner(stored.annotations);
+  }catch{}
+}
+// Non-blocking restore prompt. confirm() here would freeze the editor at load
+// (and Playwright/harness auto-dismiss dialogs, making the path untestable).
+function showRestoreBanner(pending){
+  const bar = document.createElement("div");
+  bar.id = "restoreBanner";
+  bar.setAttribute("role","status");
+  const text = document.createElement("span");
+  text.textContent = `Restore ${pending.length} unsaved annotation(s)?`;
+  const yes = document.createElement("button");
+  yes.textContent = "Restore"; yes.className = "primary"; yes.type = "button";
+  const no = document.createElement("button");
+  no.textContent = "Dismiss"; no.type = "button";
+  const close = async () => { bar.remove(); };
+  yes.addEventListener("click", () => {
+    annotations = cloneAnnotations(pending);
+    historyStack = [cloneAnnotations([]), cloneAnnotations(annotations)];
+    redoStack = [];
+    redraw(); updateActionStates();
+    setStatus("Restored unsaved work."); showToast("Restored");
+    close();
+  });
+  no.addEventListener("click", () => { close(); clearAutoSave(); });
+  bar.append(text, yes, no);
+  document.body.appendChild(bar);
+  setTimeout(() => { if(document.body.contains(bar)) close(); }, 15000);
+}
+async function clearAutoSave(){ try{ if(chrome.storage.session) await chrome.storage.session.remove(AUTO_SAVE_KEY); await chrome.storage.local.remove(AUTO_SAVE_KEY); }catch{} }
 async function persistPreset(){ try{ const { [SETTINGS_KEY]: cur={} } = await chrome.storage.local.get(SETTINGS_KEY); await chrome.storage.local.set({ [SETTINGS_KEY]: { ...cur, defaultColor: activeColor, fontSize: activeFontSize }});}catch{} }
 async function initialize() {
   const stored = await chrome.storage.local.get(STORAGE_KEY);
-  const capture = stored[STORAGE_KEY];
+  let capture = stored[STORAGE_KEY];
 
-  if (!capture?.dataUrl) {
+  if (!capture || (!capture.dataUrl && !capture.idb)) {
     throw new Error("No captured image found. Take a screenshot first.");
   }
+  const dataUrl = await getCaptureDataUrl(capture);
+  if (!dataUrl) throw new Error("Unable to load capture (storage expired). Take a new screenshot.");
   captureMeta = capture;
-  captureImage = await loadImage(capture.dataUrl);
+  captureImage = await loadImage(dataUrl);
   canvas.width = captureImage.width;
   canvas.height = captureImage.height;
   // The photo lives in the <img> layer (browser-decoded once); the canvas
   // buffer holds only annotations, so per-move redraws never re-composite it.
   if (photo) {
-    photo.src = capture.dataUrl;
+    photo.src = dataUrl;
   }
   await loadPresets();
   fitToWidth();
@@ -104,6 +177,11 @@ async function initialize() {
   redraw();
   bindEvents();
   updateActionStates();
+  restoreAutoSave();
+  updateFilenamePreview();
+  chrome.storage.onChanged?.addListener((changes)=>{
+    if(changes[SETTINGS_KEY]){ const s=changes[SETTINGS_KEY].newValue||{}; if(s.defaultColor && s.defaultColor!==activeColor){ activeColor=s.defaultColor; colorSwatches.forEach(sw=> sw.classList.toggle("is-active", sw.dataset.color===activeColor)); } if(typeof s.fontSize==="number" && s.fontSize!==activeFontSize){ activeFontSize=Math.min(FONT_MAX,Math.max(FONT_MIN,s.fontSize)); fontSizeInput.value=String(activeFontSize); } updateFilenamePreview(); }
+  });
   setStatus(`Ready to annotate your ${capture.mode} capture.${getExtensionVersion() ? ` (v${getExtensionVersion()})` : ""}`);
   console.info("SnapCanvas editor ready", getExtensionVersion() || "(unknown version)");
 }
@@ -116,14 +194,16 @@ function getExtensionVersion() {
   }
 }
 
+function setActiveTool(tool){
+  currentTool = tool;
+  toolButtons.forEach((btn)=>{ const on=btn.dataset.tool===tool; btn.classList.toggle("is-active", on); btn.setAttribute("aria-pressed", String(on)); });
+  canvas.classList.toggle("selecting", currentTool==="select");
+  updateActionStates();
+  setStatus(`Tool selected: ${currentTool}.`);
+}
 function bindEvents() {
   toolButtons.forEach((button) => {
-    button.addEventListener("click", () => {
-      currentTool = button.dataset.tool;
-      toolButtons.forEach((tool) => tool.classList.toggle("is-active", tool === button));
-      canvas.classList.toggle("selecting", currentTool === "select");
-      setStatus(`Tool selected: ${currentTool}.`);
-    });
+    button.addEventListener("click", () => setActiveTool(button.dataset.tool));
   });
 
   colorSwatches.forEach((button) => {
@@ -147,11 +227,13 @@ function bindEvents() {
   copyButton.addEventListener("click", copyImage);
   clearButton.addEventListener("click", clearAll);
   downloadButton.addEventListener("click", downloadImage);
+  cropButton?.addEventListener("click", cropToSelection);
   zoomInButton.addEventListener("click", () => setZoom(zoom * ZOOM_STEP));
   zoomOutButton.addEventListener("click", () => setZoom(zoom / ZOOM_STEP));
   fitButton.addEventListener("click", fitToWidth);
   zoomLabel.addEventListener("click", () => setZoom(1));
-  helpButton?.addEventListener("click", () => helpModal?.showModal());
+  helpButton?.addEventListener("click", () => { helpModal?.showModal(); trapFocus(helpModal); });
+  helpModal?.addEventListener("close", ()=>{ canvas.focus?.(); });
   window.addEventListener("keydown", onKeyDown);
   window.addEventListener("keyup", onKeyUp);
   fontSizeDec.addEventListener("click", () => applyFontSize(activeFontSize - 2));
@@ -161,6 +243,19 @@ function bindEvents() {
     if (Number.isFinite(value)) activeFontSize = value;
   });
   fontSizeInput.addEventListener("change", () => { applyFontSize(fontSizeInput.value); persistPreset(); });
+}
+function trapFocus(dialog){
+  if(!dialog) return;
+  const focusables=[...dialog.querySelectorAll("button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])")];
+  if(!focusables.length) return;
+  const first=focusables[0], last=focusables[focusables.length-1];
+  dialog.addEventListener("keydown", function h(e){
+    if(e.key!=="Tab") return;
+    if(e.shiftKey && document.activeElement===first){ e.preventDefault(); last.focus(); }
+    else if(!e.shiftKey && document.activeElement===last){ e.preventDefault(); first.focus(); }
+    if(dialog.open===false) dialog.removeEventListener("keydown", h);
+  });
+  setTimeout(()=>focusables[0].focus(), 30);
 }
 
 // Geometry snapshot for no-op-commit suppression: capture the annotation's
@@ -662,6 +757,10 @@ function redraw() {
     drawAnnotation(a);
   }
   drawHandles();
+  // Selection state changes go through redraw() on every pointer path; keep the
+  // action buttons (crop needs a selected rect) in step here instead of asking
+  // each caller to remember.
+  updateActionStates();
 }
 
 // Full composite (photo + annotations) for download/copy only — rare,
@@ -868,6 +967,48 @@ function deleteSelected() {
   setStatus("Annotation deleted.");
 }
 
+async function cropToSelection(){
+  if(selectedIndex < 0){ showToast("Select a rectangle/redaction to crop"); setStatus("Select a rectangle to crop."); return; }
+  const sel = annotations[selectedIndex];
+  if(sel.type!=="rectangle" && sel.type!=="redact"){ showToast("Crop works on rectangle/redaction"); return; }
+  const rx = Math.max(0, Math.floor(sel.x));
+  const ry = Math.max(0, Math.floor(sel.y));
+  const rw = Math.max(1, Math.floor(sel.width));
+  const rh = Math.max(1, Math.floor(sel.height));
+  if(rx+rw > captureImage.width || ry+rh > captureImage.height){ showToast("Selection out of bounds"); return; }
+  const off = new OffscreenCanvas(rw, rh);
+  const octx = off.getContext("2d");
+  octx.drawImage(captureImage, rx, ry, rw, rh, 0, 0, rw, rh);
+  const blob = await off.convertToBlob({type:"image/png"});
+  const newDataUrl = await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onloadend=()=>res(fr.result); fr.onerror=()=>rej(new Error("crop failed")); fr.readAsDataURL(blob); });
+  const nextAnnotations = [];
+  for(const a of annotations){
+    if(a===sel) continue;
+    if(a.type==="arrow"){
+      const inside = a.x1>=rx && a.x1<=rx+rw && a.y1>=ry && a.y1<=ry+rh && a.x2>=rx && a.x2<=rx+rw && a.y2>=ry && a.y2<=ry+rh;
+      if(!inside) continue;
+      nextAnnotations.push({ ...a, x1: a.x1 - rx, y1: a.y1 - ry, x2: a.x2 - rx, y2: a.y2 - ry });
+    } else if(a.type==="text"){
+      if(a.x < rx || a.x > rx+rw || a.y < ry || a.y > ry+rh) continue;
+      nextAnnotations.push({ ...a, x: a.x - rx, y: a.y - ry });
+    } else {
+      const ax2=a.x + a.width, ay2=a.y + a.height;
+      if(a.x < rx || a.y < ry || ax2 > rx+rw || ay2 > ry+rh) continue;
+      nextAnnotations.push({ ...a, x: a.x - rx, y: a.y - ry });
+    }
+  }
+  const newImg = await loadImage(newDataUrl);
+  captureImage = newImg;
+  canvas.width = newImg.width; canvas.height = newImg.height;
+  if(photo) photo.src = newDataUrl;
+  try{ const id = captureMeta?.captureId || `cap-${Date.now()}`; captureMeta.captureId=id; captureMeta.dataUrl=newDataUrl; delete captureMeta.idb; await chrome.storage.local.set({ [STORAGE_KEY]: captureMeta }); try{ const db=await idbOpen(); const tx=db.transaction(IDB_STORE,"readwrite"); tx.objectStore(IDB_STORE).put(newDataUrl, id); }catch{} }catch{}
+  annotations = nextAnnotations;
+  selectedIndex=-1; resetDragState();
+  historyStack.push(cloneAnnotations(annotations)); if(historyStack.length>HISTORY_LIMIT) historyStack.shift(); redoStack.length=0;
+  scheduleAutoSave();
+  fitToWidth(); redraw(); updateActionStates();
+  showToast(`Cropped to ${rw}×${rh}`); setStatus("Cropped. Undo restores.");
+}
 // Clear every annotation in one click — undoable via the same history stack
 // as any single edit (commitHistory pushes the pre-clear state).
 function clearAll() {
@@ -925,29 +1066,26 @@ function commitHistory() {
   if (historyStack.length > HISTORY_LIMIT) {
     historyStack.shift();
   }
-  redoStack.length = 0; // any new edit invalidates the redo history
+  redoStack.length = 0;
   updateActionStates();
+  scheduleAutoSave();
 }
 
 function cloneAnnotations(list) {
   return list.map((a) => { const { _cache, _cacheW, _cacheH, ...rest } = a; return { ...rest }; });
 }
 
-function sanitize(s){ return String(s||"page").replace(/[^a-z0-9-_]+/gi,"-").replace(/^-+|-+$/g,"").slice(0,40)||"page"; }
+function filenamePreviewEl(){ return document.querySelector("#filenamePreview"); }
 async function buildFilename(){
   try{
     const { [SETTINGS_KEY]: s={} } = await chrome.storage.local.get(SETTINGS_KEY);
-    const tpl = (s.filenameTemplate || "pagesnap-{domain}-{date}-{mode}").trim() || "pagesnap-{domain}-{date}-{mode}";
-    const domain = sanitize(captureMeta?.domain || "page");
-    const mode = captureMeta?.mode || "capture";
-    const title = sanitize(captureMeta?.title || "");
-    const d = new Date();
-    const date = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-    let name = tpl.replaceAll("{domain}", domain).replaceAll("{date}", date).replaceAll("{mode}", mode).replaceAll("{title}", title);
-    name = name.replace(/[^a-z0-9-_\.]+/gi,"-").replace(/-+/g,"-").replace(/^-+|-+$/g,"");
-    if(!name.toLowerCase().endsWith(".png")) name += ".png";
-    return name;
+    return buildFilenameFrom(s.filenameTemplate, { domain: captureMeta?.domain || "page", title: captureMeta?.title || "", mode: captureMeta?.mode || "capture" });
   }catch{ return `pagesnap-${Date.now()}.png`; }
+}
+async function updateFilenamePreview(){
+  const el = filenamePreviewEl();
+  if(!el) return;
+  el.textContent = `Saves as: ${await buildFilename()}`;
 }
 async function downloadImage() {
   const link = document.createElement("a");
@@ -991,6 +1129,8 @@ function updateActionStates() {
   undoButton.disabled = historyStack.length <= 1;
   redoButton.disabled = redoStack.length === 0;
   clearButton.disabled = annotations.length === 0;
+  if(cropButton){ const canCrop = selectedIndex>=0 && (annotations[selectedIndex]?.type==="rectangle"||annotations[selectedIndex]?.type==="redact"); cropButton.disabled = !canCrop; }
+  toolButtons.forEach(btn=> btn.setAttribute("aria-pressed", String(btn.dataset.tool===currentTool)));
 }
 
 // Read a font-size value (px) clamped to [FONT_MIN, FONT_MAX]; keeps the input
@@ -1066,6 +1206,13 @@ function nudgeSelected(dx, dy){
   redraw();
   return true;
 }
+function commitNudgeGroup(){
+  if(!nudgeGrouping) return;
+  nudgeGrouping=false;
+  const changed = nudgeGroupStart && selectedIndex>=0 ? geometryChanged(annotations[selectedIndex], nudgeGroupStart) : true;
+  nudgeGroupStart=null;
+  if(changed){ commitHistory(); }
+}
 function onKeyDown(event) {
   const activeTag = document.activeElement?.tagName || "";
   if (activeTag === "TEXTAREA" || activeTag === "INPUT") {
@@ -1074,7 +1221,7 @@ function onKeyDown(event) {
 
   if (event.key === "?" && !event.ctrlKey && !event.metaKey) { helpModal?.showModal(); event.preventDefault(); return; }
 
-  // Arrow nudge for selected annotation
+  // Arrow nudge for selected annotation — grouped into one undo (Task 8)
   if (selectedIndex >= 0 && ["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(event.key)) {
     const step = event.shiftKey ? 10 : 1;
     let dx=0, dy=0;
@@ -1082,7 +1229,13 @@ function onKeyDown(event) {
     if(event.key==="ArrowDown") dy=step;
     if(event.key==="ArrowLeft") dx=-step;
     if(event.key==="ArrowRight") dx=step;
-    if(nudgeSelected(dx, dy)){ event.preventDefault(); commitHistory(); setStatus(`Nudged ${step}px`); }
+    if(!nudgeGrouping){ nudgeGrouping=true; nudgeGroupStart=snapshotGeometry(annotations[selectedIndex]); }
+    if(nudgeSelected(dx, dy)){
+      event.preventDefault();
+      clearTimeout(nudgeTimer);
+      nudgeTimer=setTimeout(()=>commitNudgeGroup(), 400);
+      setStatus(`Nudged ${step}px`);
+    }
     return;
   }
 
@@ -1116,6 +1269,16 @@ function onKeyDown(event) {
     event.preventDefault();
     duplicateSelected();
     return;
+  }
+
+  // Task 6: single-key tool accelerators
+  const key=event.key.toLowerCase();
+  const accel={ r:"rectangle", a:"arrow", t:"text", s:"select", b:"blur", p:"pixel" };
+  if(accel[key] && !event.ctrlKey && !event.metaKey && !event.altKey){
+    event.preventDefault(); setActiveTool(accel[key]); return;
+  }
+  if(key==="0" && !event.ctrlKey && !event.metaKey){
+    event.preventDefault(); fitToWidth(); setStatus("Fit to width"); return;
   }
 
   if (event.code !== "Space") {

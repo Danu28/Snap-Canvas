@@ -1,6 +1,6 @@
 {
   "kind": "editor-pixel",
-  "recordedAt": "2026-08-15T12:03:19.936Z",
+  "recordedAt": "2026-09-11T18:36:21.358Z",
   "image": {
     "width": 800,
     "height": 600
@@ -20,11 +20,11 @@
     },
     {
       "step": "select-move",
-      "hash": 2137755708
+      "hash": 2401929894
     },
     {
       "step": "resize",
-      "hash": 2584712803
+      "hash": 1565590829
     },
     {
       "step": "undo",
@@ -40,27 +40,27 @@
     },
     {
       "step": "duplicate",
-      "hash": 3416635021
+      "hash": 669114145
     },
     {
       "step": "zoom",
-      "hash": 3416635021
+      "hash": 669114145
     },
     {
       "step": "move-burst",
-      "hash": 2268351884
+      "hash": 3660509823
     },
     {
       "step": "blur",
-      "hash": 3754685553
+      "hash": 3910007146
     },
     {
       "step": "pixel",
-      "hash": 3343465906
+      "hash": 1042614806
     }
   ],
   "counters": {
-    "drawImage": 233,
+    "drawImage": 69,
     "getImageData": 0,
     "getContextHints": [
       null,
@@ -94,8 +94,8 @@
   },
   "moveBurst": {
     "drawImageDelta": 0,
-    "burstMs": 172,
-    "pageMoveMs": 4.299999997019768
+    "burstMs": 185,
+    "pageMoveMs": 10.199999988079071
   },
   "pageErrors": [],
   "runtimeErrors": 0

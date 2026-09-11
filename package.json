@@ -1,0 +1,11 @@
+{
+  "name": "snapcanvas",
+  "version": "1.4.0",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/bug-report.test.mjs tests/scroll-zoom-removed.test.mjs tests/enhancements.test.mjs",
+    "test:bug": "node --test tests/bug-report.test.mjs",
+    "test:zoom": "node --test tests/scroll-zoom-removed.test.mjs",
+    "test:enh": "node --test tests/enhancements.test.mjs"
+  }
+}

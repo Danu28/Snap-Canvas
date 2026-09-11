@@ -2,12 +2,14 @@ const CAPTURE_STORAGE_KEY = "latestCapture";
 const HISTORY_KEY = "recentCaptures";
 const HISTORY_LIMIT = 5;
 const THUMB_WIDTH = 240;
-const SELECTION_MESSAGE_TIMEOUT = 300;
+const LAST_ERROR_KEY = "lastCaptureError";
+const IDB_NAME = "snapCanvasCaptures";
+const IDB_STORE = "captures";
 // Chrome's hard floor is 2 captureVisibleTab calls/sec (500 ms); 520 keeps a
 // small margin and the MAX_CAPTURE retry below is the backstop. At 600 ms the
 // throttle padding dominated full-page wall time (~70% on an 8-tile page).
 const CAPTURE_THROTTLE_MS = 520;
-const SCROLL_SETTLE_MS = 120;
+const SCROLL_SETTLE_MS = 60;
 // After a scroll, images entering the viewport may still be loading; a tile
 // captured then shows blank boxes. Bounded wait (below) covers that.
 const SCROLL_IMAGE_WAIT_MS = 700;
@@ -16,19 +18,68 @@ const STITCH_CONCURRENCY = 4;
 
 let lastCaptureAt = 0;
 
+// --- Error surfacing (Task 1) ---
+async function setLastError(message) {
+  try {
+    await chrome.storage.local.set({ [LAST_ERROR_KEY]: { message, at: Date.now() } });
+    try { await chrome.action.setBadgeText({ text: "!" }); await chrome.action.setBadgeBackgroundColor({ color: "#c62828" }); } catch {}
+  } catch {}
+}
+async function clearLastError() {
+  try { await chrome.storage.local.remove(LAST_ERROR_KEY); } catch {}
+  try { await chrome.action.setBadgeText({ text: "" }); } catch {}
+}
+// --- Minimal IDB helper (Task 2) ---
+function idbOpen() {
+  return new Promise((resolve, reject) => {
+    try {
+      const req = indexedDB.open(IDB_NAME, 1);
+      req.onupgradeneeded = () => req.result.createObjectStore(IDB_STORE);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    } catch (e) { reject(e); }
+  });
+}
+async function idbPut(id, dataUrl) {
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, "readwrite");
+    tx.objectStore(IDB_STORE).put(dataUrl, id);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function idbGet(id) {
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, "readonly");
+    const req = tx.objectStore(IDB_STORE).get(id);
+    req.onsuccess = () => { db.close(); resolve(req.result); };
+    req.onerror = () => reject(req.error);
+  });
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "START_CAPTURE") {
     handleCapture(message).then(
-      () => sendResponse({ ok: true }),
-      (error) => sendResponse({ ok: false, error: error.message })
+      () => { clearLastError(); sendResponse({ ok: true }); },
+      (error) => { setLastError(error.message || "Capture failed"); sendResponse({ ok: false, error: error.message }); }
     );
     return true;
   }
 
   if (message?.type === "SELECTION_COMPLETE" || message?.type === "ELEMENT_SELECTED") {
     handleSelectedCapture(message, sender).then(
-      () => sendResponse({ ok: true }),
-      (error) => sendResponse({ ok: false, error: error.message })
+      () => { clearLastError(); sendResponse({ ok: true }); },
+      (error) => { setLastError(error.message || "Capture failed"); sendResponse({ ok: false, error: error.message }); }
+    );
+    return true;
+  }
+
+  if (message?.type === "GET_CAPTURE_BLOB") {
+    idbGet(message.id).then(
+      (dataUrl) => sendResponse({ ok: true, dataUrl }),
+      (error) => sendResponse({ ok: false, error: error?.message || "IDB miss" })
     );
     return true;
   }
@@ -41,7 +92,7 @@ chrome.commands.onCommand.addListener(async (command) => {
   if (!mode) return;
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id || !tab?.windowId) return;
-  handleCapture({ mode, tabId: tab.id, windowId: tab.windowId }).catch(console.error);
+  try { await handleCapture({ mode, tabId: tab.id, windowId: tab.windowId }); clearLastError(); } catch (e) { setLastError(e.message); console.error(e); }
 });
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -73,57 +124,69 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   }
 });
 
-async function handleCapture({ mode, tabId, windowId, delayMs = 0 }) {
+async function handleCapture({ mode, tabId, windowId, delayMs = 0, includeSticky = false }) {
   // Delayed capture applies to full/visible only; the timer is owned here (in
   // the service worker), so it survives the popup closing mid-countdown.
   if (delayMs > 0 && mode !== "selected") {
     await delay(delayMs);
   }
 
-  if (mode === "visible") {
-    const dataUrl = await captureTabWithoutScrollbars(tabId, windowId);
-    const meta = await getTabMeta(tabId);
-    await storeCaptureAndOpenEditor({ dataUrl, mode, ...meta });
-    return;
-  }
+  try {
+    if (mode === "visible") {
+      const dataUrl = await captureTabWithoutScrollbars(tabId, windowId);
+      const meta = await getTabMeta(tabId);
+      await storeCaptureAndOpenEditor({ dataUrl, mode, ...meta });
+      return;
+    }
 
-  if (mode === "selected") {
-    await ensureSelectionScript(tabId);
-    await chrome.tabs.sendMessage(tabId, { type: "BEGIN_SELECTION" });
-    return;
-  }
+    if (mode === "selected") {
+      await ensureSelectionScript(tabId);
+      await chrome.tabs.sendMessage(tabId, { type: "BEGIN_SELECTION" });
+      return;
+    }
 
-  if (mode === "full") {
-    const dataUrl = await captureFullPage(tabId, windowId);
-    const meta = await getTabMeta(tabId);
-    await storeCaptureAndOpenEditor({ dataUrl, mode, ...meta });
-    return;
-  }
+    if (mode === "full") {
+      const dataUrl = await captureFullPage(tabId, windowId, includeSticky);
+      const meta = await getTabMeta(tabId);
+      await storeCaptureAndOpenEditor({ dataUrl, mode, ...meta });
+      return;
+    }
 
-  throw new Error(`Unsupported capture mode: ${mode}`);
+    throw new Error(`Unsupported capture mode: ${mode}`);
+  } catch (e) {
+    await setLastError(e.message || "Capture failed");
+    throw e;
+  }
 }
 
 async function ensureSelectionScript(tabId) {
   try {
     await chrome.tabs.sendMessage(tabId, { type: "PING_SELECTION_OVERLAY" });
-  } catch (error) {
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      files: ["selection.js"]
-    });
-    await delay(SELECTION_MESSAGE_TIMEOUT);
+    return;
+  } catch {}
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: ["selection.js"]
+  });
+  // wait for script to register listener, but no fixed sleep needed — ping again
+  for (let i = 0; i < 6; i++) {
+    await delay(50);
+    try { await chrome.tabs.sendMessage(tabId, { type: "PING_SELECTION_OVERLAY" }); return; } catch {}
   }
 }
 
 async function ensureElementPickerScript(tabId) {
   try {
     await chrome.tabs.sendMessage(tabId, { type: "PING_ELEMENT_PICKER" });
-  } catch (error) {
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      files: ["element-picker.js"]
-    });
-    await delay(SELECTION_MESSAGE_TIMEOUT);
+    return;
+  } catch {}
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: ["element-picker.js"]
+  });
+  for (let i = 0; i < 6; i++) {
+    await delay(50);
+    try { await chrome.tabs.sendMessage(tabId, { type: "PING_ELEMENT_PICKER" }); return; } catch {}
   }
 }
 
@@ -142,31 +205,37 @@ async function handleSelectedCapture({ rect }, sender) {
     throw new Error("Unable to resolve the selected tab.");
   }
 
-  const visibleDataUrl = await captureTabWithoutScrollbars(tabId, windowId);
-  const croppedDataUrl = await cropSelectedArea(visibleDataUrl, rect);
-  const meta = {
-    domain: safeDomain(sender.tab?.url),
-    title: sender.tab?.title || ""
-  };
-  await storeCaptureAndOpenEditor({ dataUrl: croppedDataUrl, mode: "selected", ...meta });
+  try {
+    const visibleDataUrl = await captureTabWithoutScrollbars(tabId, windowId);
+    const croppedDataUrl = await cropSelectedArea(visibleDataUrl, rect);
+    const meta = {
+      domain: safeDomain(sender.tab?.url),
+      title: sender.tab?.title || ""
+    };
+    await storeCaptureAndOpenEditor({ dataUrl: croppedDataUrl, mode: "selected", ...meta });
 
-  // Element capture scrolls the page (picker scrollIntoView); restore the
-  // prior scroll so the user's page isn't left jumped to the element.
-  // Selected-area capture never scrolls, so it sends no scrollX/scrollY.
-  if (typeof rect.scrollX === "number" && typeof rect.scrollY === "number") {
-    try {
-      await chrome.scripting.executeScript({
-        target: { tabId },
-        func: (x, y) => window.scrollTo(x, y),
-        args: [rect.scrollX, rect.scrollY]
-      });
-    } catch {
-      // Page may have navigated; the capture itself already succeeded.
+    // Element capture scrolls the page (picker scrollIntoView); restore the
+    // prior scroll so the user's page isn't left jumped to the element.
+    // Selected-area capture never scrolls, so it sends no scrollX/scrollY.
+    if (typeof rect.scrollX === "number" && typeof rect.scrollY === "number") {
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId },
+          func: (x, y) => window.scrollTo(x, y),
+          args: [rect.scrollX, rect.scrollY]
+        });
+      } catch {
+        // Page may have navigated; the capture itself already succeeded.
+      }
     }
+    await clearLastError();
+  } catch (e) {
+    await setLastError(e.message || "Selection capture failed");
+    throw e;
   }
 }
 
-async function captureFullPage(tabId, windowId) {
+async function captureFullPage(tabId, windowId, includeSticky = false) {
   await injectScrollbarHide(tabId);
   await waitForPaint(tabId);
   await assertTabActive(tabId, windowId);
@@ -175,7 +244,7 @@ async function captureFullPage(tabId, windowId) {
   try {
     const [{ result }] = await chrome.scripting.executeScript({
       target: { tabId },
-      func: () => {
+      func: (includeStickyFlag) => {
         const doc = document.documentElement;
         const body = document.body;
 
@@ -194,7 +263,11 @@ async function captureFullPage(tabId, windowId) {
             continue;
           }
           const style = window.getComputedStyle(node);
-          if (style.position === "fixed" || style.position === "sticky") {
+          const isFixed = style.position === "fixed";
+          const isSticky = style.position === "sticky";
+          // Task 4: includeSticky opt-out — when true, keep sticky visible
+          const shouldHide = isFixed || (isSticky && !includeStickyFlag);
+          if (shouldHide) {
             node.dataset.pagesnapHidden = node.style.visibility || "__EMPTY__";
             node.style.visibility = "hidden";
           }
@@ -208,7 +281,8 @@ async function captureFullPage(tabId, windowId) {
           originalX: window.scrollX,
           originalY: window.scrollY
         };
-      }
+      },
+      args: [includeSticky]
     });
     metrics = result;
 
@@ -361,6 +435,15 @@ async function waitForPaint(tabId) {
 // (complete === true with no box growth), so a dead image can't stall capture;
 // out-of-viewport images are ignored (their own tile will wait for them).
 async function waitForViewportImages(tabId) {
+  // Task 7: early-out if no images at all — avoids 700ms stall on text pages
+  try {
+    const [{ result: count }] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => document.getElementsByTagName("img").length
+    });
+    if (count === 0) return;
+  } catch { return; }
+
   const deadline = Date.now() + SCROLL_IMAGE_WAIT_MS;
   for (;;) {
     const [{ result: ready }] = await chrome.scripting.executeScript({
@@ -369,6 +452,7 @@ async function waitForViewportImages(tabId) {
         const vw = window.innerWidth;
         const vh = window.innerHeight;
         const imgs = document.getElementsByTagName("img");
+        if (imgs.length === 0) return true;
         for (let i = 0; i < imgs.length; i += 1) {
           const img = imgs[i];
           if (img.complete) continue;
@@ -485,6 +569,7 @@ async function cropSelectedArea(dataUrl, rect) {
   context.drawImage(bitmap, sx, sy, width, height, 0, 0, width, height);
 
   const blob = await canvas.convertToBlob({ type: "image/png" });
+  bitmap.close();
   return blobToDataUrl(blob);
 }
 
@@ -497,7 +582,6 @@ async function getTabMeta(tabId) {
     return { domain: safeDomain(tab?.url), title: tab?.title || "" };
   } catch { return { domain: "page", title: "" }; }
 }
-function sanitizeFilename(s) { return String(s).replace(/[^a-z0-9-_]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "page"; }
 async function makeThumb(dataUrl) {
   try {
     const bmp = await decodeBitmap(dataUrl);
@@ -530,18 +614,35 @@ async function pushHistory(entry) {
 }
 async function storeCaptureAndOpenEditor({ dataUrl, mode, domain, title }) {
   const capturedAt = new Date().toISOString();
+  const captureId = `cap-${Date.now()}-${Math.random().toString(36).slice(2,6)}`;
+  // Task 2: hybrid storage — try chrome.storage.local first (keeps harness happy), fallback to IDB on quota
+  let storedViaIdb = false;
   try {
     await chrome.storage.local.set({
-      [CAPTURE_STORAGE_KEY]: { dataUrl, mode, capturedAt, domain: domain || "page", title: title || "" }
+      [CAPTURE_STORAGE_KEY]: { dataUrl, mode, capturedAt, domain: domain || "page", title: title || "", captureId }
     });
   } catch (error) {
-    throw new Error(`Unable to save the capture to storage (${error?.message || "storage error"}). Try a smaller region.`);
+    const msg = error?.message || "";
+    if (msg.includes("QUOTA") || msg.includes("quota") || dataUrl.length > 6_000_000) {
+      try {
+        await idbPut(captureId, dataUrl);
+        await chrome.storage.local.set({
+          [CAPTURE_STORAGE_KEY]: { idb: true, captureId, mode, capturedAt, domain: domain || "page", title: title || "" }
+        });
+        storedViaIdb = true;
+      } catch (idbErr) {
+        throw new Error(`Unable to save capture (${msg || idbErr.message}). Try a smaller region.`);
+      }
+    } else {
+      throw new Error(`Unable to save the capture to storage (${msg || "storage error"}). Try a smaller region.`);
+    }
   }
-  await pushHistory({ dataUrl, mode, domain, title, capturedAt });
+  // Task 7/10: history is best-effort, don't block editor open
+  pushHistory({ dataUrl, mode, domain, title, capturedAt }).catch(()=>{});
   await chrome.tabs.create({ url: chrome.runtime.getURL("editor.html") });
 }
 // Export helpers for testing (not used at runtime)
-if (typeof globalThis !== "undefined") { globalThis.__snapCanvasHelpers = { safeDomain, sanitizeFilename }; }
+if (typeof globalThis !== "undefined") { globalThis.__snapCanvasHelpers = { safeDomain, buildSteps }; }
 
 function blobToDataUrl(blob) {
   return new Promise((resolve, reject) => {

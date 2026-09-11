@@ -317,6 +317,40 @@ body {
   line-height: 1.45;
   min-height: 19px;
 }
+.filename-preview {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+  word-break: break-all;
+}
+#restoreBanner {
+  position: fixed;
+  left: 50%;
+  top: 16px;
+  transform: translateX(-50%);
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel-strong);
+  color: var(--text);
+  font-size: 13px;
+  box-shadow: var(--shadow);
+}
+#restoreBanner button {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  background: var(--panel);
+  color: var(--text);
+}
 /* Editor inherits popup toast var but ensure */
 
 .shortcuts {

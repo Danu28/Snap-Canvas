@@ -22,6 +22,9 @@
         <option value="5000">5 seconds</option>
         <option value="10000">10 seconds</option>
       </select>
+      <label class="check-row" style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13px;color:#4a3f35;cursor:pointer">
+        <input type="checkbox" id="includeSticky" style="accent-color:#d85823"> Include sticky header (full-page)
+      </label>
     </section>
 
     <section class="actions">
@@ -41,12 +44,12 @@
 
     <section id="historySection" class="history" aria-label="Recent captures" hidden>
       <div class="history-head"><span>Recent</span><button id="clearHistory" class="link-btn" type="button">Clear</button></div>
-      <div id="historyStrip" class="history-strip"></div>
+      <div id="historyStrip" class="history-strip" role="list"></div>
     </section>
 
     <details class="settings" id="settingsPanel">
       <summary>Settings</summary>
-      <label class="field"><span>Filename template</span><input id="filenameTemplate" placeholder="pagesnap-{domain}-{date}-{mode}" spellcheck="false"><small>Vars: {domain} {date} {mode} {title}</small></label>
+      <label class="field"><span>Filename template</span><input id="filenameTemplate" placeholder="pagesnap-{domain}-{date}-{mode}" spellcheck="false"><small>Vars: {domain} {date} {mode} {title}</small><small id="filenamePreview" style="color:#6b6257;font-size:11px;display:block;margin-top:4px;word-break:break-all"></small></label>
       <label class="field"><span>Default color</span>
         <select id="defaultColor"><option value="#43a047">Green</option><option value="#e53935">Red</option><option value="#1e88e5">Blue</option><option value="#fb8c00">Orange</option><option value="#212121">Black</option><option value="#fafafa">White</option></select>
       </label>

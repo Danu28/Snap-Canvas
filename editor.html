@@ -15,27 +15,27 @@
       </div>
 
       <div class="tool-grid" role="toolbar" aria-label="Annotation tools">
-        <button class="tool-button is-active" data-tool="rectangle" title="Rectangle — drag on canvas">
+        <button class="tool-button is-active" data-tool="rectangle" title="Rectangle — drag on canvas (R)" aria-pressed="true" aria-label="Rectangle (R)">
           <svg class="tool-icon" viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="4.5" width="14" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
           <span class="tool-label">Rectangle</span>
         </button>
-        <button class="tool-button" data-tool="arrow" title="Arrow — drag to point">
+        <button class="tool-button" data-tool="arrow" title="Arrow — drag to point (A)" aria-pressed="false" aria-label="Arrow (A)">
           <svg class="tool-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 14 L13 5 M8 5 H13 V10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
           <span class="tool-label">Arrow</span>
         </button>
-        <button class="tool-button" data-tool="text" title="Text — click to type (Enter to place)">
+        <button class="tool-button" data-tool="text" title="Text — click to type (T)" aria-pressed="false" aria-label="Text (T)">
           <svg class="tool-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4.5 4.5 H15.5 M10 4.5 V15.5 M8 15.5 H12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
           <span class="tool-label">Text</span>
         </button>
-        <button class="tool-button" data-tool="select" title="Select — click, drag, resize, Delete">
+        <button class="tool-button" data-tool="select" title="Select — click, drag, resize, Delete (S)" aria-pressed="false" aria-label="Select (S)">
           <svg class="tool-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 3 L15 11 L10.6 11.4 L12.6 17 L9.4 18 L7.4 12.6 L5 15 Z" fill="currentColor"/></svg>
           <span class="tool-label">Select</span>
         </button>
-        <button class="tool-button" data-tool="blur" title="Blur — drag to redact an area">
+        <button class="tool-button" data-tool="blur" title="Blur — drag to redact (B)" aria-pressed="false" aria-label="Blur (B)">
           <svg class="tool-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3.5 C13.5 8 16.5 11 16.5 14 a6.5 6.5 0 0 1 -13 0 C3.5 11 6.5 8 10 3.5 Z" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
           <span class="tool-label">Blur</span>
         </button>
-        <button class="tool-button" data-tool="pixel" title="Pixelate — drag to redact an area">
+        <button class="tool-button" data-tool="pixel" title="Pixelate — drag to redact (P)" aria-pressed="false" aria-label="Pixelate (P)">
           <svg class="tool-icon" viewBox="0 0 20 20" aria-hidden="true"><g fill="currentColor"><rect x="4" y="4" width="3.5" height="3.5"/><rect x="8.25" y="4" width="3.5" height="3.5"/><rect x="12.5" y="4" width="3.5" height="3.5"/><rect x="4" y="8.25" width="3.5" height="3.5"/><rect x="8.25" y="8.25" width="3.5" height="3.5"/><rect x="12.5" y="8.25" width="3.5" height="3.5"/><rect x="4" y="12.5" width="3.5" height="3.5"/><rect x="8.25" y="12.5" width="3.5" height="3.5"/><rect x="12.5" y="12.5" width="3.5" height="3.5"/></g></svg>
           <span class="tool-label">Pixelate</span>
         </button>
@@ -49,7 +49,7 @@
           <button type="button" class="color-swatch" data-color="#1e88e5" title="Blue" aria-label="Blue"></button>
           <button type="button" class="color-swatch" data-color="#fb8c00" title="Orange" aria-label="Orange"></button>
           <button type="button" class="color-swatch" data-color="#212121" title="Black" aria-label="Black"></button>
-          <button type="button" class="color-swatch" data-color="#fafafa" title="White" aria-label="White"></button>
+          <button type="button" class="color-swatch" data-color="#fafafa" title="White" aria-label="White" style="border-color:rgba(24,21,17,.35)"></button>
         </div>
       </div>
 
@@ -66,20 +66,23 @@
         <button id="zoomOutButton" class="zoom-button" aria-label="Zoom out">−</button>
         <button id="zoomLabel" class="zoom-label" aria-label="Reset zoom to 100%" title="Reset zoom (click)">100%</button>
         <button id="zoomInButton" class="zoom-button" aria-label="Zoom in">+</button>
-        <button id="fitButton" class="zoom-button" aria-label="Fit to width">Fit</button>
+        <button id="fitButton" class="zoom-button" aria-label="Fit to width (0)">Fit</button>
       </div>
 
       <div class="actions">
         <button id="undoButton" class="secondary" title="Undo last change (Ctrl+Z)">Undo</button>
         <button id="redoButton" class="secondary" title="Redo last change (Ctrl+Shift+Z)">Redo</button>
         <button id="clearButton" class="secondary" title="Remove all annotations">Clear All</button>
+        <button id="cropButton" class="secondary" title="Crop to selected rectangle/redaction (Select then Crop)">Crop to Selection</button>
         <button id="copyButton" class="secondary" title="Copy annotated image to clipboard">Copy Image</button>
         <button id="downloadButton" class="primary" title="Save annotated image as PNG">Download PNG</button>
       </div>
+      <small id="filenamePreview" class="filename-preview"></small>
 
       <p id="editorStatus" class="status" role="status" aria-live="polite">Loading capture...</p>
 
       <div class="shortcuts" aria-label="Keyboard shortcuts">
+        <span class="shortcut"><kbd>R</kbd> rect · <kbd>A</kbd> arrow · <kbd>T</kbd> text · <kbd>S</kbd> select · <kbd>B</kbd> blur · <kbd>P</kbd> pixel · <kbd>0</kbd> fit</span>
         <span class="shortcut"><kbd>?</kbd> help · <kbd>Space</kbd> + drag to pan</span>
         <span class="shortcut"><kbd>Ctrl</kbd>+<kbd>Z</kbd> undo · <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redo</span>
         <span class="shortcut"><kbd>Ctrl</kbd>+<kbd>D</kbd> duplicate · <kbd>Del</kbd> delete · <kbd>Esc</kbd> deselect · <kbd>Arrows</kbd> nudge (Shift 10px)</span>
@@ -97,7 +100,7 @@
     </main>
   </div>
 
-  <dialog id="helpModal" aria-label="Help"><form method="dialog"><h3 style="margin:0 0 8px">SnapCanvas Help</h3><p style="margin:0 0 10px;color:var(--muted);font-size:13px">Capture → Annotate → Export. All PNG, lossless.</p><ul style="margin:0 0 12px 18px;font-size:13px;line-height:1.5"><li><strong>Tools:</strong> Rectangle / Arrow / Text / Select / Blur / Pixelate</li><li><strong>Select:</strong> click to select, drag to move, handles to resize, arrows to nudge</li><li><strong>Text:</strong> click canvas, type, Enter to place, Shift+Enter newline</li><li><strong>Zoom:</strong> Fit / − / + or click % to reset; Space+drag or middle-drag to pan</li><li><strong>History:</strong> Undo Ctrl+Z, Redo Ctrl+Shift+Z, Duplicate Ctrl+D, Delete Del, Esc deselect</li><li><strong>Capture:</strong> Ctrl+Shift+1 Full · 2 Visible · 3 Selected</li></ul><button class="primary" style="width:100%">Close</button></form></dialog>
+  <dialog id="helpModal" aria-label="Help" aria-modal="true"><form method="dialog"><h3 style="margin:0 0 8px">SnapCanvas Help</h3><p style="margin:0 0 10px;color:var(--muted);font-size:13px">Capture → Annotate → Export. All PNG, lossless.</p><ul style="margin:0 0 12px 18px;font-size:13px;line-height:1.5"><li><strong>Tools:</strong> Rectangle (R) / Arrow (A) / Text (T) / Select (S) / Blur (B) / Pixelate (P)</li><li><strong>Select:</strong> click to select, drag to move, handles to resize, arrows to nudge</li><li><strong>Text:</strong> click canvas, type, Enter to place, Shift+Enter newline</li><li><strong>Zoom:</strong> Fit (0) / − / + or click % to reset; Space+drag or middle-drag to pan</li><li><strong>History:</strong> Undo Ctrl+Z, Redo Ctrl+Shift+Z, Duplicate Ctrl+D, Delete Del, Esc deselect</li><li><strong>Crop:</strong> Select a rectangle/redaction, then Crop to Selection</li><li><strong>Capture:</strong> Ctrl+Shift+1 Full · 2 Visible · 3 Selected</li></ul><button class="primary" style="width:100%" autofocus>Close</button></form></dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="editor.js" type="module"></script>
 </body>
