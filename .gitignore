@@ -6,3 +6,4 @@ devloop.js
 
 # Editor/agent harness runtime state
 .harness/
+suggestion.html
