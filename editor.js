@@ -206,7 +206,7 @@ function bindEvents() {
     button.addEventListener("click", () => setActiveTool(button.dataset.tool));
   });
 
-  colorSwatches.forEach((button) => {
+  colorSwatches.forEach((button, idx) => {
     button.addEventListener("click", () => {
       activeColor = button.dataset.color;
       colorSwatches.forEach((swatch) => swatch.classList.toggle("is-active", swatch === button));
@@ -216,6 +216,15 @@ function bindEvents() {
         if (a.color !== activeColor) { a.color = activeColor; commitHistory(); redraw(); setStatus("Color applied to selection."); showToast("Color updated"); return; }
       }
       setStatus(`Color: ${(button.title || activeColor).toLowerCase()}.`);
+    });
+    // Laptop/desktop keyboard: arrow keys move focus across swatches, Enter/Space selects
+    button.addEventListener("keydown", (e) => {
+      if(e.key === "ArrowRight" || e.key === "ArrowLeft"){
+        e.preventDefault();
+        const dir = e.key === "ArrowRight" ? 1 : -1;
+        const next = (idx + dir + colorSwatches.length) % colorSwatches.length;
+        colorSwatches[next].focus();
+      }
     });
   });
 
@@ -249,13 +258,14 @@ function trapFocus(dialog){
   const focusables=[...dialog.querySelectorAll("button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])")];
   if(!focusables.length) return;
   const first=focusables[0], last=focusables[focusables.length-1];
-  dialog.addEventListener("keydown", function h(e){
+  function onKey(e){
     if(e.key!=="Tab") return;
     if(e.shiftKey && document.activeElement===first){ e.preventDefault(); last.focus(); }
     else if(!e.shiftKey && document.activeElement===last){ e.preventDefault(); first.focus(); }
-    if(dialog.open===false) dialog.removeEventListener("keydown", h);
-  });
-  setTimeout(()=>focusables[0].focus(), 30);
+  }
+  dialog.addEventListener("keydown", onKey);
+  dialog.addEventListener("close", function cleanup(){ dialog.removeEventListener("keydown", onKey); dialog.removeEventListener("close", cleanup); }, { once: true });
+  setTimeout(()=>first.focus(), 30);
 }
 
 // Geometry snapshot for no-op-commit suppression: capture the annotation's
@@ -489,8 +499,13 @@ function showTextEditor(point) {
 
   // Position the overlay at the canvas-space point, mapped to screen space at current zoom.
   const canvasRect = canvas.getBoundingClientRect();
-  const left = canvasRect.left + (point.x / captureImage.width) * canvasRect.width;
-  const top = canvasRect.top + (point.y / captureImage.height) * canvasRect.height;
+  let left = canvasRect.left + (point.x / captureImage.width) * canvasRect.width;
+  let top = canvasRect.top + (point.y / captureImage.height) * canvasRect.height;
+  // Desktop clamp: keep editor inside viewport near edges (laptop window edges)
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const margin = 12;
+  left = Math.max(margin, Math.min(left, vw - 272));
+  top = Math.max(margin, Math.min(top, vh - 96));
 
   textEditor = document.createElement("textarea");
   textEditor.className = "text-editor-overlay";
@@ -1129,8 +1144,14 @@ function updateActionStates() {
   undoButton.disabled = historyStack.length <= 1;
   redoButton.disabled = redoStack.length === 0;
   clearButton.disabled = annotations.length === 0;
-  if(cropButton){ const canCrop = selectedIndex>=0 && (annotations[selectedIndex]?.type==="rectangle"||annotations[selectedIndex]?.type==="redact"); cropButton.disabled = !canCrop; }
+  if(cropButton){ const canCrop = selectedIndex>=0 && (annotations[selectedIndex]?.type==="rectangle"||annotations[selectedIndex]?.type==="redact"); cropButton.disabled = !canCrop; cropButton.title = canCrop ? "Crop to selected rectangle/redaction" : "Select a rectangle/redaction first"; }
   toolButtons.forEach(btn=> btn.setAttribute("aria-pressed", String(btn.dataset.tool===currentTool)));
+  // Laptop/desktop: zoom limits feedback
+  if(zoomInButton) zoomInButton.disabled = zoom >= ZOOM_MAX - 0.001;
+  if(zoomOutButton) zoomOutButton.disabled = zoom <= ZOOM_MIN + 0.001;
+  if(fontSizeDec) fontSizeDec.disabled = activeFontSize <= FONT_MIN;
+  if(fontSizeInc) fontSizeInc.disabled = activeFontSize >= FONT_MAX;
+  if(fontSizeInput){ fontSizeInput.title = `Text size ${activeFontSize}px (${FONT_MIN}–${FONT_MAX})`; }
 }
 
 // Read a font-size value (px) clamped to [FONT_MIN, FONT_MAX]; keeps the input
@@ -1142,6 +1163,7 @@ function applyFontSize(value) {
   activeFontSize = size;
   fontSizeInput.value = String(size);
   persistPreset();
+  updateActionStates();
   if (selectedIndex >= 0 && annotations[selectedIndex]?.type === "text") {
     annotations[selectedIndex].fontSize = size;
     commitHistory();
@@ -1174,6 +1196,9 @@ function setZoom(value) {
   canvas.style.width = `${Math.round(captureImage.width * zoom)}px`;
   canvas.style.height = `${Math.round(captureImage.height * zoom)}px`;
   zoomLabel.textContent = `${Math.round(zoom * 100)}%`;
+  updateActionStates();
+  // Keep canvas focus so laptop keyboard shortcuts keep working after zoom click
+  try{ canvas.focus({ preventScroll: true }); }catch{}
 }
 
 function startPan(event) {

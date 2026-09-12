@@ -8,7 +8,7 @@
 </head>
 <body>
   <div class="app-shell">
-    <aside class="toolbar">
+    <aside class="toolbar" aria-label="Annotation toolbar">
       <div class="brand">
         <p class="eyebrow">Annotation Studio</p>
         <h1>PageSnap Editor</h1>
@@ -83,25 +83,25 @@
 
       <div class="shortcuts" aria-label="Keyboard shortcuts">
         <span class="shortcut"><kbd>R</kbd> rect · <kbd>A</kbd> arrow · <kbd>T</kbd> text · <kbd>S</kbd> select · <kbd>B</kbd> blur · <kbd>P</kbd> pixel · <kbd>0</kbd> fit</span>
-        <span class="shortcut"><kbd>?</kbd> help · <kbd>Space</kbd> + drag to pan</span>
+        <span class="shortcut"><kbd>?</kbd> help · <kbd>Space</kbd> + drag to pan · <kbd>Middle-drag</kbd> pan</span>
         <span class="shortcut"><kbd>Ctrl</kbd>+<kbd>Z</kbd> undo · <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redo</span>
         <span class="shortcut"><kbd>Ctrl</kbd>+<kbd>D</kbd> duplicate · <kbd>Del</kbd> delete · <kbd>Esc</kbd> deselect · <kbd>Arrows</kbd> nudge (Shift 10px)</span>
       </div>
-      <button id="helpButton" class="secondary" type="button" aria-label="Show help" style="margin-top:6px;width:100%">Help (?)</button>
+      <button id="helpButton" class="secondary" type="button" aria-label="Show help">Help (?)</button>
     </aside>
 
-    <main class="canvas-area">
+    <main class="canvas-area" aria-label="Canvas area">
       <div class="canvas-wrap">
         <div class="canvas-stack">
           <img id="editorPhoto" alt="" aria-hidden="true">
-          <canvas id="editorCanvas"></canvas>
+          <canvas id="editorCanvas" tabindex="0" aria-label="Annotation canvas — use tools to draw, Select to move/resize"></canvas>
         </div>
       </div>
     </main>
   </div>
 
   <dialog id="helpModal" aria-label="Help" aria-modal="true"><form method="dialog"><h3 style="margin:0 0 8px">SnapCanvas Help</h3><p style="margin:0 0 10px;color:var(--muted);font-size:13px">Capture → Annotate → Export. All PNG, lossless.</p><ul style="margin:0 0 12px 18px;font-size:13px;line-height:1.5"><li><strong>Tools:</strong> Rectangle (R) / Arrow (A) / Text (T) / Select (S) / Blur (B) / Pixelate (P)</li><li><strong>Select:</strong> click to select, drag to move, handles to resize, arrows to nudge</li><li><strong>Text:</strong> click canvas, type, Enter to place, Shift+Enter newline</li><li><strong>Zoom:</strong> Fit (0) / − / + or click % to reset; Space+drag or middle-drag to pan</li><li><strong>History:</strong> Undo Ctrl+Z, Redo Ctrl+Shift+Z, Duplicate Ctrl+D, Delete Del, Esc deselect</li><li><strong>Crop:</strong> Select a rectangle/redaction, then Crop to Selection</li><li><strong>Capture:</strong> Ctrl+Shift+1 Full · 2 Visible · 3 Selected</li></ul><button class="primary" style="width:100%" autofocus>Close</button></form></dialog>
-  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
   <script src="editor.js" type="module"></script>
 </body>
 </html>

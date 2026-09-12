@@ -14,30 +14,32 @@
       <p class="subtitle">Capture the current tab, then mark it up with fast annotation tools.</p>
     </div>
 
-    <section class="options">
-      <label for="delaySelect">Capture delay</label>
-      <select id="delaySelect" aria-label="Capture delay">
-        <option value="0" selected>None</option>
-        <option value="3000">3 seconds</option>
-        <option value="5000">5 seconds</option>
-        <option value="10000">10 seconds</option>
-      </select>
-      <label class="check-row" style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13px;color:#4a3f35;cursor:pointer">
-        <input type="checkbox" id="includeSticky" style="accent-color:#d85823"> Include sticky header (full-page)
+    <section class="options" aria-label="Capture options">
+      <div class="options-row">
+        <label for="delaySelect">Capture delay</label>
+        <select id="delaySelect" aria-label="Capture delay">
+          <option value="0" selected>None</option>
+          <option value="3000">3 seconds</option>
+          <option value="5000">5 seconds</option>
+          <option value="10000">10 seconds</option>
+        </select>
+      </div>
+      <label class="check-row" for="includeSticky">
+        <input type="checkbox" id="includeSticky"> Include sticky header (full-page)
       </label>
     </section>
 
-    <section class="actions">
-      <button class="capture-button" data-mode="full">
-        <span class="label">Full page</span>
+    <section class="actions" aria-label="Capture modes">
+      <button class="capture-button" data-mode="full" aria-label="Full page capture">
+        <span class="label">Full page <span class="kbd-hint">· Ctrl+Shift+1</span></span>
         <span class="hint">Scroll and stitch the whole document</span>
       </button>
-      <button class="capture-button" data-mode="visible">
-        <span class="label">Visible area</span>
+      <button class="capture-button" data-mode="visible" aria-label="Visible area capture">
+        <span class="label">Visible area <span class="kbd-hint">· Ctrl+Shift+2</span></span>
         <span class="hint">Grab exactly what is on screen now</span>
       </button>
-      <button class="capture-button" data-mode="selected">
-        <span class="label">Selected area</span>
+      <button class="capture-button" data-mode="selected" aria-label="Selected area capture">
+        <span class="label">Selected area <span class="kbd-hint">· Ctrl+Shift+3</span></span>
         <span class="hint">Pick a region before capture</span>
       </button>
     </section>
@@ -56,7 +58,7 @@
     </details>
 
     <p id="status" class="status" role="status" aria-live="polite"></p>
-    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
   </main>
 
   <script src="popup.js" type="module"></script>

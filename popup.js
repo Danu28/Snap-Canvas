@@ -107,8 +107,16 @@ async function renderHistory() {
   } catch { historySection.hidden = true; }
 }
 
+function syncDelayForMode(mode){
+  // Desktop UX: delay is meaningless for Selected area (you drag when ready). Show disabled state on hover/focus so laptop users discover it before clicking.
+  const isSelected = mode === "selected";
+  if(delaySelect){
+    delaySelect.disabled = isSelected;
+    delaySelect.title = isSelected ? "Delay does not apply to Selected area (you control timing by dragging)" : "";
+  }
+}
 async function capture(mode) {
-  const delayMs = parseInt(delaySelect.value, 10) || 0;
+  const delayMs = (delaySelect?.disabled ? 0 : parseInt(delaySelect.value, 10) || 0);
   const includeSticky = !!includeStickyInput?.checked;
   delaySelect.disabled = mode === "selected";
   setStatus(`Starting ${mode} capture...`);
@@ -137,7 +145,24 @@ function runCountdown(totalMs) {
   }, 100);
 }
 
-buttons.forEach((b) => b.addEventListener("click", () => capture(b.dataset.mode)));
+buttons.forEach((b) => {
+  b.addEventListener("click", () => capture(b.dataset.mode));
+  // Laptop/desktop: hint that delay is ignored for Selected area before the user clicks
+  b.addEventListener("mouseenter", () => syncDelayForMode(b.dataset.mode));
+  b.addEventListener("focus", () => syncDelayForMode(b.dataset.mode));
+});
+// Reset delay UI when leaving actions area
+const actionsEl = document.querySelector(".actions");
+actionsEl?.addEventListener("mouseleave", () => { if(delaySelect) { delaySelect.disabled = false; delaySelect.title = ""; } });
+document.querySelector(".options")?.addEventListener("mouseenter", () => { if(delaySelect) { delaySelect.disabled = false; delaySelect.title = ""; } });
+// Laptop/desktop: keyboard accelerators 1/2/3 for Full/Visible/Selected
+window.addEventListener("keydown", (e) => {
+  if(e.target.closest && e.target.closest("input, select, textarea")) return;
+  if(e.key==="1") capture("full");
+  if(e.key==="2") capture("visible");
+  if(e.key==="3") capture("selected");
+  if(e.key==="Escape") window.close();
+});
 // Double-click popup background = quick visible capture
 document.addEventListener("dblclick", (e) => {
   if (e.target.closest("button, input, select, summary")) return;
