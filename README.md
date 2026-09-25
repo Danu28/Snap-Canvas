@@ -37,15 +37,24 @@ SnapCanvas is a Chrome extension for capturing and annotating screenshots of the
 - **Tab switch cancels a capture.** Full-page capture aborts with an error if
   the active tab changes mid-capture rather than stitching the wrong page.
 
+## Permissions (justified)
+
+- `activeTab` — capture the current tab’s visible pixels.
+- `tabs` — resolve `tabId`/`windowId` and guard `assertTabActive` (abort if user switches tabs mid-stitch); `getTabMeta` for filename/domain. No broad host access.
+- `scripting` — inject `selection.js` / `element-picker.js` and hide fixed/sticky + scroll for stitching.
+- `storage` / `unlimitedStorage` — store last capture + IndexedDB fallback for large PNGs (>6 MB quota) + auto-save and settings.
+- `downloads` — save annotated PNG.
+- `clipboardWrite` — Copy Image.
+- `contextMenus` — right-click → Capture element.
+- CSP: `script-src 'self'; object-src 'none'` (see `manifest.json`).
+
 ## Main Files
 
-- `manifest.json`
-- `background.js`
-- `popup.html`
-- `popup.css`
-- `popup.js`
-- `selection.js`
-- `element-picker.js`
-- `editor.html`
-- `editor.css`
-- `editor.js`
+- `manifest.json` (MV3, `content_security_policy` hardened)
+- `background.js` — capture orchestrator (throttled stitch, IDB fallback, tab-guard)
+- `popup.html` / `popup.css` / `popup.js` — capture UI, history, settings
+- `selection.js` — selected-area overlay (DOM-API, no innerHTML)
+- `element-picker.js` — element picker (DOM-API, no innerHTML)
+- `editor.html` / `editor.css` / `editor.js` — annotation studio
+- `modules/history.js`, `modules/redact.js`, `modules/zoom.js`, `modules/annotations.js` — modularized editor helpers (P2)
+- `shared.js` — filename builder (single source)

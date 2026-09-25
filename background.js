@@ -120,7 +120,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     await ensureElementPickerScript(tab.id);
     await chrome.tabs.sendMessage(tab.id, { type: "BEGIN_ELEMENT_PICK" });
   } catch (error) {
-    console.error("PageSnap element picker failed:", error);
+    console.error("SnapCanvas element picker failed:", error);
   }
 });
 
@@ -641,8 +641,10 @@ async function storeCaptureAndOpenEditor({ dataUrl, mode, domain, title }) {
   pushHistory({ dataUrl, mode, domain, title, capturedAt }).catch(()=>{});
   await chrome.tabs.create({ url: chrome.runtime.getURL("editor.html") });
 }
-// Export helpers for testing (not used at runtime)
-if (typeof globalThis !== "undefined") { globalThis.__snapCanvasHelpers = { safeDomain, buildSteps }; }
+// Test-only helpers — not exposed in production extension pages.
+// In the extension (no Node `process`) this branch is dead; in Node/harness tests
+// `process` exists and the helpers are exposed for unit tests.
+if (typeof globalThis !== "undefined" && typeof process !== "undefined" && process.env.NODE_ENV !== "production") { globalThis.__snapCanvasHelpers = { safeDomain, buildSteps }; }
 
 function blobToDataUrl(blob) {
   return new Promise((resolve, reject) => {

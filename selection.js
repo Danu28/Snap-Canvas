@@ -28,10 +28,13 @@ if (!window.__pagesnapSelectionLoaded) {
     const helpText = hint || "Drag to select an area. Press Esc to cancel.";
     overlay = document.createElement("div");
     overlay.id = "pagesnap-selection-overlay";
-    overlay.innerHTML = `
-      <div class="pagesnap-shade"></div>
-      <div class="pagesnap-help">${helpText}</div>
-    `;
+    // P3: DOM API instead of innerHTML — no HTML parsing, no XSS surface even though hint is static.
+    const shade = document.createElement("div");
+    shade.className = "pagesnap-shade";
+    const help = document.createElement("div");
+    help.className = "pagesnap-help";
+    help.textContent = helpText;
+    overlay.append(shade, help);
 
     const style = document.createElement("style");
     style.textContent = `
@@ -128,7 +131,7 @@ if (!window.__pagesnapSelectionLoaded) {
         throw new Error(response?.error || "Selected capture failed.");
       }
     } catch (error) {
-      console.error("PageSnap selection failed:", error);
+      console.error("SnapCanvas selection failed:", error);
     }
   }
 

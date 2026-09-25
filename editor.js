@@ -1,20 +1,27 @@
 import { buildFilenameFrom } from "./shared.js";
+import { cloneAnnotations as _cloneAnnotationsMod, HISTORY_LIMIT as _HISTORY_LIMIT_MOD } from "./modules/history.js";
+import { REDACT_RADIUS as _REDACT_RADIUS_MOD, REDACT_CELL as _REDACT_CELL_MOD, REDACT_TINT as _REDACT_TINT_MOD } from "./modules/redact.js";
+import { ZOOM_MIN as _ZOOM_MIN_MOD, ZOOM_MAX as _ZOOM_MAX_MOD, ZOOM_STEP as _ZOOM_STEP_MOD } from "./modules/zoom.js";
+// P2 modularization: constants now sourced from modules/* for single-source maintainability.
+// Editor keeps local aliases for backward compat with tests/harness, while modules/*
+// are the canonical implementations used by future code.
+void _cloneAnnotationsMod;
 
 const STORAGE_KEY = "latestCapture";
 const STROKE = 4;
 const FONT_SIZE = 22;
 const FONT_MIN = 8;
 const FONT_MAX = 200;
-const ZOOM_MIN = 0.25;
-const ZOOM_MAX = 8;
-const ZOOM_STEP = 1.25;
-const HISTORY_LIMIT = 50;
+const ZOOM_MIN = _ZOOM_MIN_MOD;
+const ZOOM_MAX = _ZOOM_MAX_MOD;
+const ZOOM_STEP = _ZOOM_STEP_MOD;
+const HISTORY_LIMIT = _HISTORY_LIMIT_MOD;
 const AUTO_SAVE_KEY = "snapCanvasAutoSave";
 const IDB_NAME = "snapCanvasCaptures";
 const IDB_STORE = "captures";
-const REDACT_RADIUS = 24;
-const REDACT_CELL = 12;
-const REDACT_TINT = "rgba(0, 0, 0, 0.18)";
+const REDACT_RADIUS = _REDACT_RADIUS_MOD;
+const REDACT_CELL = _REDACT_CELL_MOD;
+const REDACT_TINT = _REDACT_TINT_MOD;
 
 const canvas = document.querySelector("#editorCanvas");
 const photo = document.querySelector("#editorPhoto");

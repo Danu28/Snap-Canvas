@@ -26,9 +26,11 @@ if (!window.__pagesnapElementPickerLoaded) {
     const helpText = hint || "Hover an element, then click to capture it. Press Esc to cancel.";
     overlay = document.createElement("div");
     overlay.id = "pagesnap-element-picker";
-    overlay.innerHTML = `
-      <div class="pagesnap-picker-help">${helpText}</div>
-    `;
+    // P3: DOM API instead of innerHTML — no HTML parsing.
+    const help = document.createElement("div");
+    help.className = "pagesnap-picker-help";
+    help.textContent = helpText;
+    overlay.appendChild(help);
 
     const style = document.createElement("style");
     style.textContent = `
@@ -164,7 +166,7 @@ if (!window.__pagesnapElementPickerLoaded) {
         throw new Error(response?.error || "Element capture failed.");
       }
     } catch (error) {
-      console.error("PageSnap element picker failed:", error);
+      console.error("SnapCanvas element picker failed:", error);
     }
   }
 
