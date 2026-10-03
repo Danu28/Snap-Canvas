@@ -1,27 +1,24 @@
 import { buildFilenameFrom } from "./shared.js";
-import { cloneAnnotations as _cloneAnnotationsMod, HISTORY_LIMIT as _HISTORY_LIMIT_MOD } from "./modules/history.js";
-import { REDACT_RADIUS as _REDACT_RADIUS_MOD, REDACT_CELL as _REDACT_CELL_MOD, REDACT_TINT as _REDACT_TINT_MOD } from "./modules/redact.js";
-import { ZOOM_MIN as _ZOOM_MIN_MOD, ZOOM_MAX as _ZOOM_MAX_MOD, ZOOM_STEP as _ZOOM_STEP_MOD } from "./modules/zoom.js";
-// P2 modularization: constants now sourced from modules/* for single-source maintainability.
-// Editor keeps local aliases for backward compat with tests/harness, while modules/*
-// are the canonical implementations used by future code.
-void _cloneAnnotationsMod;
+import { cloneAnnotations, HISTORY_LIMIT } from "./modules/history.js";
+import {
+  invalidateRedactCache as invalidateRedactCacheMod,
+  drawRedact as drawRedactMod
+} from "./modules/redact.js";
+import { ZOOM_MIN, ZOOM_MAX, ZOOM_STEP } from "./modules/zoom.js";
+import {
+  normalizeRect,
+  distToSegment,
+  snapshotGeometry,
+  geometryChanged
+} from "./modules/annotations.js";
+import { idbGet as idbGetMod, idbPut as idbPutMod } from "./modules/idb.js";
 
 const STORAGE_KEY = "latestCapture";
 const STROKE = 4;
 const FONT_SIZE = 22;
 const FONT_MIN = 8;
 const FONT_MAX = 200;
-const ZOOM_MIN = _ZOOM_MIN_MOD;
-const ZOOM_MAX = _ZOOM_MAX_MOD;
-const ZOOM_STEP = _ZOOM_STEP_MOD;
-const HISTORY_LIMIT = _HISTORY_LIMIT_MOD;
 const AUTO_SAVE_KEY = "snapCanvasAutoSave";
-const IDB_NAME = "snapCanvasCaptures";
-const IDB_STORE = "captures";
-const REDACT_RADIUS = _REDACT_RADIUS_MOD;
-const REDACT_CELL = _REDACT_CELL_MOD;
-const REDACT_TINT = _REDACT_TINT_MOD;
 
 const canvas = document.querySelector("#editorCanvas");
 const photo = document.querySelector("#editorPhoto");
@@ -89,75 +86,128 @@ initialize().catch((error) => {
   setStatus(error.message || "Unable to initialize editor.");
 });
 
-function showToast(msg, ms = 2400){ if(!toastEl) return setStatus(msg); toastEl.textContent = msg; toastEl.classList.add("show"); clearTimeout(toastTimer); toastTimer=setTimeout(()=>toastEl.classList.remove("show"), ms); }
-async function loadPresets(){
-  try{ const { [SETTINGS_KEY]: s={} } = await chrome.storage.local.get(SETTINGS_KEY); if(s.defaultColor) activeColor = s.defaultColor; if(typeof s.fontSize==="number") activeFontSize = Math.min(FONT_MAX, Math.max(FONT_MIN, s.fontSize)); }catch{}
+function showToast(msg, ms = 2400) {
+  if (!toastEl) return setStatus(msg);
+  toastEl.textContent = msg;
+  toastEl.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove("show"), ms);
+}
+async function loadPresets() {
+  try {
+    const { [SETTINGS_KEY]: s = {} } = await chrome.storage.local.get(SETTINGS_KEY);
+    if (s.defaultColor) activeColor = s.defaultColor;
+    if (typeof s.fontSize === "number")
+      activeFontSize = Math.min(FONT_MAX, Math.max(FONT_MIN, s.fontSize));
+  } catch {}
   // sync swatches
-  colorSwatches.forEach(sw=> sw.classList.toggle("is-active", sw.dataset.color === activeColor));
+  colorSwatches.forEach((sw) => sw.classList.toggle("is-active", sw.dataset.color === activeColor));
   fontSizeInput.value = String(activeFontSize);
 }
-function idbOpen(){ return new Promise((resolve,reject)=>{ try{ const r=indexedDB.open(IDB_NAME,1); r.onupgradeneeded=()=>r.result.createObjectStore(IDB_STORE); r.onsuccess=()=>resolve(r.result); r.onerror=()=>reject(r.error);}catch(e){reject(e);} }); }
-async function getCaptureDataUrl(capture){
-  if(capture?.dataUrl) return capture.dataUrl;
-  if(capture?.idb && capture?.captureId){
-    try{ const db=await idbOpen(); const tx=db.transaction(IDB_STORE,"readonly"); const req=tx.objectStore(IDB_STORE).get(capture.captureId); const url=await new Promise((res,rej)=>{ req.onsuccess=()=>res(req.result); req.onerror=()=>rej(req.error);}); db.close(); if(url) return url; }catch{}
+async function getCaptureDataUrl(capture) {
+  if (capture?.dataUrl) return capture.dataUrl;
+  if (capture?.idb && capture?.captureId) {
+    try {
+      const url = await idbGetMod(capture.captureId);
+      if (url) return url;
+    } catch {}
   }
-  if(capture?.captureId){
-    try{ const resp=await chrome.runtime.sendMessage({type:"GET_CAPTURE_BLOB", id:capture.captureId}); if(resp?.ok && resp.dataUrl) return resp.dataUrl; }catch{}
+  if (capture?.captureId) {
+    try {
+      const resp = await chrome.runtime.sendMessage({
+        type: "GET_CAPTURE_BLOB",
+        id: capture.captureId
+      });
+      if (resp?.ok && resp.dataUrl) return resp.dataUrl;
+    } catch {}
   }
   return null;
 }
-function scheduleAutoSave(){
+function scheduleAutoSave() {
   clearTimeout(autoSaveTimer);
-  autoSaveTimer=setTimeout(async()=>{
-    try{
-      const payload={ captureId: captureMeta?.captureId || captureMeta?.capturedAt || "default", annotations: cloneAnnotations(annotations), at: Date.now() };
-      if(chrome.storage.session) await chrome.storage.session.set({ [AUTO_SAVE_KEY]: payload });
+  autoSaveTimer = setTimeout(async () => {
+    try {
+      const payload = {
+        captureId: captureMeta?.captureId || captureMeta?.capturedAt || "default",
+        annotations: cloneAnnotations(annotations),
+        at: Date.now()
+      };
+      if (chrome.storage.session) await chrome.storage.session.set({ [AUTO_SAVE_KEY]: payload });
       else await chrome.storage.local.set({ [AUTO_SAVE_KEY]: payload });
-    }catch{}
+    } catch {}
   }, 800);
 }
-async function restoreAutoSave(){
-  try{
+async function restoreAutoSave() {
+  try {
     let stored = null;
-    if(chrome.storage.session) { const r=await chrome.storage.session.get(AUTO_SAVE_KEY); stored=r[AUTO_SAVE_KEY]; }
-    if(!stored){ const r=await chrome.storage.local.get(AUTO_SAVE_KEY); stored=r[AUTO_SAVE_KEY]; }
-    if(!stored || !stored.annotations || !Array.isArray(stored.annotations)) return;
+    if (chrome.storage.session) {
+      const r = await chrome.storage.session.get(AUTO_SAVE_KEY);
+      stored = r[AUTO_SAVE_KEY];
+    }
+    if (!stored) {
+      const r = await chrome.storage.local.get(AUTO_SAVE_KEY);
+      stored = r[AUTO_SAVE_KEY];
+    }
+    if (!stored || !stored.annotations || !Array.isArray(stored.annotations)) return;
     const curId = captureMeta?.captureId || captureMeta?.capturedAt;
-    if(stored.captureId !== curId) return;
-    if(stored.annotations.length===0) return;
-    if(Date.now() - (stored.at||0) > 3600000) return;
+    if (stored.captureId !== curId) return;
+    if (stored.annotations.length === 0) return;
+    if (Date.now() - (stored.at || 0) > 3600000) return;
     showRestoreBanner(stored.annotations);
-  }catch{}
+  } catch {}
 }
 // Non-blocking restore prompt. confirm() here would freeze the editor at load
 // (and Playwright/harness auto-dismiss dialogs, making the path untestable).
-function showRestoreBanner(pending){
+function showRestoreBanner(pending) {
   const bar = document.createElement("div");
   bar.id = "restoreBanner";
-  bar.setAttribute("role","status");
+  bar.setAttribute("role", "status");
   const text = document.createElement("span");
   text.textContent = `Restore ${pending.length} unsaved annotation(s)?`;
   const yes = document.createElement("button");
-  yes.textContent = "Restore"; yes.className = "primary"; yes.type = "button";
+  yes.textContent = "Restore";
+  yes.className = "primary";
+  yes.type = "button";
   const no = document.createElement("button");
-  no.textContent = "Dismiss"; no.type = "button";
-  const close = async () => { bar.remove(); };
+  no.textContent = "Dismiss";
+  no.type = "button";
+  const close = async () => {
+    bar.remove();
+  };
   yes.addEventListener("click", () => {
     annotations = cloneAnnotations(pending);
     historyStack = [cloneAnnotations([]), cloneAnnotations(annotations)];
     redoStack = [];
-    redraw(); updateActionStates();
-    setStatus("Restored unsaved work."); showToast("Restored");
+    redraw();
+    updateActionStates();
+    setStatus("Restored unsaved work.");
+    showToast("Restored");
     close();
   });
-  no.addEventListener("click", () => { close(); clearAutoSave(); });
+  no.addEventListener("click", () => {
+    close();
+    clearAutoSave();
+  });
   bar.append(text, yes, no);
   document.body.appendChild(bar);
-  setTimeout(() => { if(document.body.contains(bar)) close(); }, 15000);
+  setTimeout(() => {
+    if (document.body.contains(bar)) close();
+  }, 15000);
 }
-async function clearAutoSave(){ try{ if(chrome.storage.session) await chrome.storage.session.remove(AUTO_SAVE_KEY); await chrome.storage.local.remove(AUTO_SAVE_KEY); }catch{} }
-async function persistPreset(){ try{ const { [SETTINGS_KEY]: cur={} } = await chrome.storage.local.get(SETTINGS_KEY); await chrome.storage.local.set({ [SETTINGS_KEY]: { ...cur, defaultColor: activeColor, fontSize: activeFontSize }});}catch{} }
+async function clearAutoSave() {
+  try {
+    if (chrome.storage.session) await chrome.storage.session.remove(AUTO_SAVE_KEY);
+    await chrome.storage.local.remove(AUTO_SAVE_KEY);
+  } catch {}
+}
+async function persistPreset() {
+  try {
+    const { [SETTINGS_KEY]: cur = {} } = await chrome.storage.local.get(SETTINGS_KEY);
+    await chrome.storage.local.set({
+      [SETTINGS_KEY]: { ...cur, defaultColor: activeColor, fontSize: activeFontSize }
+    });
+  } catch {}
+}
 async function initialize() {
   const stored = await chrome.storage.local.get(STORAGE_KEY);
   let capture = stored[STORAGE_KEY];
@@ -186,10 +236,25 @@ async function initialize() {
   updateActionStates();
   restoreAutoSave();
   updateFilenamePreview();
-  chrome.storage.onChanged?.addListener((changes)=>{
-    if(changes[SETTINGS_KEY]){ const s=changes[SETTINGS_KEY].newValue||{}; if(s.defaultColor && s.defaultColor!==activeColor){ activeColor=s.defaultColor; colorSwatches.forEach(sw=> sw.classList.toggle("is-active", sw.dataset.color===activeColor)); } if(typeof s.fontSize==="number" && s.fontSize!==activeFontSize){ activeFontSize=Math.min(FONT_MAX,Math.max(FONT_MIN,s.fontSize)); fontSizeInput.value=String(activeFontSize); } updateFilenamePreview(); }
+  chrome.storage.onChanged?.addListener((changes) => {
+    if (changes[SETTINGS_KEY]) {
+      const s = changes[SETTINGS_KEY].newValue || {};
+      if (s.defaultColor && s.defaultColor !== activeColor) {
+        activeColor = s.defaultColor;
+        colorSwatches.forEach((sw) =>
+          sw.classList.toggle("is-active", sw.dataset.color === activeColor)
+        );
+      }
+      if (typeof s.fontSize === "number" && s.fontSize !== activeFontSize) {
+        activeFontSize = Math.min(FONT_MAX, Math.max(FONT_MIN, s.fontSize));
+        fontSizeInput.value = String(activeFontSize);
+      }
+      updateFilenamePreview();
+    }
   });
-  setStatus(`Ready to annotate your ${capture.mode} capture.${getExtensionVersion() ? ` (v${getExtensionVersion()})` : ""}`);
+  setStatus(
+    `Ready to annotate your ${capture.mode} capture.${getExtensionVersion() ? ` (v${getExtensionVersion()})` : ""}`
+  );
   console.info("SnapCanvas editor ready", getExtensionVersion() || "(unknown version)");
 }
 
@@ -201,10 +266,14 @@ function getExtensionVersion() {
   }
 }
 
-function setActiveTool(tool){
+function setActiveTool(tool) {
   currentTool = tool;
-  toolButtons.forEach((btn)=>{ const on=btn.dataset.tool===tool; btn.classList.toggle("is-active", on); btn.setAttribute("aria-pressed", String(on)); });
-  canvas.classList.toggle("selecting", currentTool==="select");
+  toolButtons.forEach((btn) => {
+    const on = btn.dataset.tool === tool;
+    btn.classList.toggle("is-active", on);
+    btn.setAttribute("aria-pressed", String(on));
+  });
+  canvas.classList.toggle("selecting", currentTool === "select");
   updateActionStates();
   setStatus(`Tool selected: ${currentTool}.`);
 }
@@ -220,13 +289,20 @@ function bindEvents() {
       persistPreset();
       if (selectedIndex >= 0) {
         const a = annotations[selectedIndex];
-        if (a.color !== activeColor) { a.color = activeColor; commitHistory(); redraw(); setStatus("Color applied to selection."); showToast("Color updated"); return; }
+        if (a.color !== activeColor) {
+          a.color = activeColor;
+          commitHistory();
+          redraw();
+          setStatus("Color applied to selection.");
+          showToast("Color updated");
+          return;
+        }
       }
       setStatus(`Color: ${(button.title || activeColor).toLowerCase()}.`);
     });
     // Laptop/desktop keyboard: arrow keys move focus across swatches, Enter/Space selects
     button.addEventListener("keydown", (e) => {
-      if(e.key === "ArrowRight" || e.key === "ArrowLeft"){
+      if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
         e.preventDefault();
         const dir = e.key === "ArrowRight" ? 1 : -1;
         const next = (idx + dir + colorSwatches.length) % colorSwatches.length;
@@ -248,8 +324,13 @@ function bindEvents() {
   zoomOutButton.addEventListener("click", () => setZoom(zoom / ZOOM_STEP));
   fitButton.addEventListener("click", fitToWidth);
   zoomLabel.addEventListener("click", () => setZoom(1));
-  helpButton?.addEventListener("click", () => { helpModal?.showModal(); trapFocus(helpModal); });
-  helpModal?.addEventListener("close", ()=>{ canvas.focus?.(); });
+  helpButton?.addEventListener("click", () => {
+    helpModal?.showModal();
+    trapFocus(helpModal);
+  });
+  helpModal?.addEventListener("close", () => {
+    canvas.focus?.();
+  });
   window.addEventListener("keydown", onKeyDown);
   window.addEventListener("keyup", onKeyUp);
   fontSizeDec.addEventListener("click", () => applyFontSize(activeFontSize - 2));
@@ -258,41 +339,46 @@ function bindEvents() {
     const value = parseInt(fontSizeInput.value, 10);
     if (Number.isFinite(value)) activeFontSize = value;
   });
-  fontSizeInput.addEventListener("change", () => { applyFontSize(fontSizeInput.value); persistPreset(); });
+  fontSizeInput.addEventListener("change", () => {
+    applyFontSize(fontSizeInput.value);
+    persistPreset();
+  });
 }
-function trapFocus(dialog){
-  if(!dialog) return;
-  const focusables=[...dialog.querySelectorAll("button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])")];
-  if(!focusables.length) return;
-  const first=focusables[0], last=focusables[focusables.length-1];
-  function onKey(e){
-    if(e.key!=="Tab") return;
-    if(e.shiftKey && document.activeElement===first){ e.preventDefault(); last.focus(); }
-    else if(!e.shiftKey && document.activeElement===last){ e.preventDefault(); first.focus(); }
+function trapFocus(dialog) {
+  if (!dialog) return;
+  const focusables = [
+    ...dialog.querySelectorAll(
+      "button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])"
+    )
+  ];
+  if (!focusables.length) return;
+  const first = focusables[0],
+    last = focusables[focusables.length - 1];
+  function onKey(e) {
+    if (e.key !== "Tab") return;
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
   }
   dialog.addEventListener("keydown", onKey);
-  dialog.addEventListener("close", function cleanup(){ dialog.removeEventListener("keydown", onKey); dialog.removeEventListener("close", cleanup); }, { once: true });
-  setTimeout(()=>first.focus(), 30);
+  dialog.addEventListener(
+    "close",
+    function cleanup() {
+      dialog.removeEventListener("keydown", onKey);
+      dialog.removeEventListener("close", cleanup);
+    },
+    { once: true }
+  );
+  setTimeout(() => first.focus(), 30);
 }
 
 // Geometry snapshot for no-op-commit suppression: capture the annotation's
 // shape when a drag/resize/text-move begins; if it's unchanged on pointerup,
 // skip commitHistory so undo never records a do-nothing edit.
-function snapshotGeometry(a) {
-  if (a.type === "arrow") {
-    return { x1: a.x1, y1: a.y1, x2: a.x2, y2: a.y2 };
-  }
-  return { x: a.x, y: a.y, width: a.width, height: a.height };
-}
-
-function geometryChanged(a, snap) {
-  if (!snap) return true;
-  if (a.type === "arrow") {
-    return a.x1 !== snap.x1 || a.y1 !== snap.y1 || a.x2 !== snap.x2 || a.y2 !== snap.y2;
-  }
-  return a.x !== snap.x || a.y !== snap.y || a.width !== snap.width || a.height !== snap.height;
-}
-
 function onPointerDown(event) {
   if (textEditor) {
     return; // the blur handler commits the open text editor
@@ -509,7 +595,8 @@ function showTextEditor(point) {
   let left = canvasRect.left + (point.x / captureImage.width) * canvasRect.width;
   let top = canvasRect.top + (point.y / captureImage.height) * canvasRect.height;
   // Desktop clamp: keep editor inside viewport near edges (laptop window edges)
-  const vw = window.innerWidth, vh = window.innerHeight;
+  const vw = window.innerWidth,
+    vh = window.innerHeight;
   const margin = 12;
   left = Math.max(margin, Math.min(left, vw - 272));
   top = Math.max(margin, Math.min(top, vh - 96));
@@ -622,9 +709,7 @@ function hitTestAnnotation(point) {
         return i;
       }
     } else if (a.type === "arrow") {
-      if (
-        distToSegment(point, { x: a.x1, y: a.y1 }, { x: a.x2, y: a.y2 }) <= 10
-      ) {
+      if (distToSegment(point, { x: a.x1, y: a.y1 }, { x: a.x2, y: a.y2 }) <= 10) {
         return i;
       }
     } else if (a.type === "text" && hitTestText(point) === i) {
@@ -632,18 +717,6 @@ function hitTestAnnotation(point) {
     }
   }
   return -1;
-}
-
-function distToSegment(point, a, b) {
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  const lengthSq = dx * dx + dy * dy;
-  if (lengthSq === 0) {
-    return Math.hypot(point.x - a.x, point.y - a.y);
-  }
-  let t = ((point.x - a.x) * dx + (point.y - a.y) * dy) / lengthSq;
-  t = Math.max(0, Math.min(1, t));
-  return Math.hypot(point.x - (a.x + t * dx), point.y - (a.y + t * dy));
 }
 
 function hitTestHandle(point) {
@@ -829,54 +902,12 @@ function drawPreview(from, to) {
   }
 }
 
-// Blur/pixelate redaction: clips to the rect, then re-draws the photo region
-// beneath it (blurred via ctx.filter, or solid-cell pixelate) plus a light
-// tint. Shared by display redraw, drag preview, and renderComposite so the
-// export shows exactly what the canvas shows. The 1:1 dest==source mapping
-// keeps the region pixel-aligned with the photo layer.
-// ponytail: per-annotation offscreen cache — O(1) per frame instead of O(area) drawImage loop (pixelate) / blur filter per frame
-function ensureRedactCache(a) {
-  if (a._cache && a._cacheW === a.width && a._cacheH === a.height) return a._cache;
-  const w = Math.max(1, Math.round(a.width));
-  const h = Math.max(1, Math.round(a.height));
-  const off = new OffscreenCanvas(w, h);
-  const octx = off.getContext("2d");
-  octx.imageSmoothingEnabled = false;
-  if (a.mode === "pixel") {
-    for (let by = 0; by < h; by += REDACT_CELL) {
-      const ch = Math.min(REDACT_CELL, h - by);
-      for (let bx = 0; bx < w; bx += REDACT_CELL) {
-        const cw = Math.min(REDACT_CELL, w - bx);
-        octx.drawImage(captureImage, a.x + bx + cw / 2, a.y + by + ch / 2, 1, 1, bx, by, cw, ch);
-      }
-    }
-  } else {
-    const right = Math.min(captureImage.width, a.x + w + REDACT_RADIUS);
-    const bottom = Math.min(captureImage.height, a.y + h + REDACT_RADIUS);
-    const sx = Math.max(0, a.x - REDACT_RADIUS);
-    const sy = Math.max(0, a.y - REDACT_RADIUS);
-    const sw = right - sx;
-    const sh = bottom - sy;
-    octx.filter = `blur(${REDACT_RADIUS}px)`;
-    octx.drawImage(captureImage, sx, sy, sw, sh, sx - a.x, sy - a.y, sw, sh);
-    octx.filter = "none";
-  }
-  a._cache = off;
-  a._cacheW = a.width;
-  a._cacheH = a.height;
-  return off;
+// Redact rendering delegates to modules/redact.js (single source). Wrappers bind captureImage.
+function invalidateRedactCache(a) {
+  return invalidateRedactCacheMod(a);
 }
-function invalidateRedactCache(a){ if(a) { delete a._cache; delete a._cacheW; delete a._cacheH; } }
 function drawRedact(a, ctx) {
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(a.x, a.y, a.width, a.height);
-  ctx.clip();
-  const cached = ensureRedactCache(a);
-  ctx.drawImage(cached, a.x, a.y);
-  ctx.fillStyle = REDACT_TINT;
-  ctx.fillRect(a.x, a.y, a.width, a.height);
-  ctx.restore();
+  return drawRedactMod(a, ctx, captureImage);
 }
 
 function drawAnnotation(a, ctx = context) {
@@ -989,47 +1020,87 @@ function deleteSelected() {
   setStatus("Annotation deleted.");
 }
 
-async function cropToSelection(){
-  if(selectedIndex < 0){ showToast("Select a rectangle/redaction to crop"); setStatus("Select a rectangle to crop."); return; }
+async function cropToSelection() {
+  if (selectedIndex < 0) {
+    showToast("Select a rectangle/redaction to crop");
+    setStatus("Select a rectangle to crop.");
+    return;
+  }
   const sel = annotations[selectedIndex];
-  if(sel.type!=="rectangle" && sel.type!=="redact"){ showToast("Crop works on rectangle/redaction"); return; }
+  if (sel.type !== "rectangle" && sel.type !== "redact") {
+    showToast("Crop works on rectangle/redaction");
+    return;
+  }
   const rx = Math.max(0, Math.floor(sel.x));
   const ry = Math.max(0, Math.floor(sel.y));
   const rw = Math.max(1, Math.floor(sel.width));
   const rh = Math.max(1, Math.floor(sel.height));
-  if(rx+rw > captureImage.width || ry+rh > captureImage.height){ showToast("Selection out of bounds"); return; }
+  if (rx + rw > captureImage.width || ry + rh > captureImage.height) {
+    showToast("Selection out of bounds");
+    return;
+  }
   const off = new OffscreenCanvas(rw, rh);
   const octx = off.getContext("2d");
   octx.drawImage(captureImage, rx, ry, rw, rh, 0, 0, rw, rh);
-  const blob = await off.convertToBlob({type:"image/png"});
-  const newDataUrl = await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onloadend=()=>res(fr.result); fr.onerror=()=>rej(new Error("crop failed")); fr.readAsDataURL(blob); });
+  const blob = await off.convertToBlob({ type: "image/png" });
+  const newDataUrl = await new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onloadend = () => res(fr.result);
+    fr.onerror = () => rej(new Error("crop failed"));
+    fr.readAsDataURL(blob);
+  });
   const nextAnnotations = [];
-  for(const a of annotations){
-    if(a===sel) continue;
-    if(a.type==="arrow"){
-      const inside = a.x1>=rx && a.x1<=rx+rw && a.y1>=ry && a.y1<=ry+rh && a.x2>=rx && a.x2<=rx+rw && a.y2>=ry && a.y2<=ry+rh;
-      if(!inside) continue;
+  for (const a of annotations) {
+    if (a === sel) continue;
+    if (a.type === "arrow") {
+      const inside =
+        a.x1 >= rx &&
+        a.x1 <= rx + rw &&
+        a.y1 >= ry &&
+        a.y1 <= ry + rh &&
+        a.x2 >= rx &&
+        a.x2 <= rx + rw &&
+        a.y2 >= ry &&
+        a.y2 <= ry + rh;
+      if (!inside) continue;
       nextAnnotations.push({ ...a, x1: a.x1 - rx, y1: a.y1 - ry, x2: a.x2 - rx, y2: a.y2 - ry });
-    } else if(a.type==="text"){
-      if(a.x < rx || a.x > rx+rw || a.y < ry || a.y > ry+rh) continue;
+    } else if (a.type === "text") {
+      if (a.x < rx || a.x > rx + rw || a.y < ry || a.y > ry + rh) continue;
       nextAnnotations.push({ ...a, x: a.x - rx, y: a.y - ry });
     } else {
-      const ax2=a.x + a.width, ay2=a.y + a.height;
-      if(a.x < rx || a.y < ry || ax2 > rx+rw || ay2 > ry+rh) continue;
+      const ax2 = a.x + a.width,
+        ay2 = a.y + a.height;
+      if (a.x < rx || a.y < ry || ax2 > rx + rw || ay2 > ry + rh) continue;
       nextAnnotations.push({ ...a, x: a.x - rx, y: a.y - ry });
     }
   }
   const newImg = await loadImage(newDataUrl);
   captureImage = newImg;
-  canvas.width = newImg.width; canvas.height = newImg.height;
-  if(photo) photo.src = newDataUrl;
-  try{ const id = captureMeta?.captureId || `cap-${Date.now()}`; captureMeta.captureId=id; captureMeta.dataUrl=newDataUrl; delete captureMeta.idb; await chrome.storage.local.set({ [STORAGE_KEY]: captureMeta }); try{ const db=await idbOpen(); const tx=db.transaction(IDB_STORE,"readwrite"); tx.objectStore(IDB_STORE).put(newDataUrl, id); }catch{} }catch{}
+  canvas.width = newImg.width;
+  canvas.height = newImg.height;
+  if (photo) photo.src = newDataUrl;
+  try {
+    const id = captureMeta?.captureId || `cap-${Date.now()}`;
+    captureMeta.captureId = id;
+    captureMeta.dataUrl = newDataUrl;
+    delete captureMeta.idb;
+    await chrome.storage.local.set({ [STORAGE_KEY]: captureMeta });
+    try {
+      await idbPutMod(id, newDataUrl);
+    } catch {}
+  } catch {}
   annotations = nextAnnotations;
-  selectedIndex=-1; resetDragState();
-  historyStack.push(cloneAnnotations(annotations)); if(historyStack.length>HISTORY_LIMIT) historyStack.shift(); redoStack.length=0;
+  selectedIndex = -1;
+  resetDragState();
+  historyStack.push(cloneAnnotations(annotations));
+  if (historyStack.length > HISTORY_LIMIT) historyStack.shift();
+  redoStack.length = 0;
   scheduleAutoSave();
-  fitToWidth(); redraw(); updateActionStates();
-  showToast(`Cropped to ${rw}×${rh}`); setStatus("Cropped. Undo restores.");
+  fitToWidth();
+  redraw();
+  updateActionStates();
+  showToast(`Cropped to ${rw}×${rh}`);
+  setStatus("Cropped. Undo restores.");
 }
 // Clear every annotation in one click — undoable via the same history stack
 // as any single edit (commitHistory pushes the pre-clear state).
@@ -1093,20 +1164,24 @@ function commitHistory() {
   scheduleAutoSave();
 }
 
-function cloneAnnotations(list) {
-  return list.map((a) => { const { _cache, _cacheW, _cacheH, ...rest } = a; return { ...rest }; });
+function filenamePreviewEl() {
+  return document.querySelector("#filenamePreview");
 }
-
-function filenamePreviewEl(){ return document.querySelector("#filenamePreview"); }
-async function buildFilename(){
-  try{
-    const { [SETTINGS_KEY]: s={} } = await chrome.storage.local.get(SETTINGS_KEY);
-    return buildFilenameFrom(s.filenameTemplate, { domain: captureMeta?.domain || "page", title: captureMeta?.title || "", mode: captureMeta?.mode || "capture" });
-  }catch{ return `pagesnap-${Date.now()}.png`; }
+async function buildFilename() {
+  try {
+    const { [SETTINGS_KEY]: s = {} } = await chrome.storage.local.get(SETTINGS_KEY);
+    return buildFilenameFrom(s.filenameTemplate, {
+      domain: captureMeta?.domain || "page",
+      title: captureMeta?.title || "",
+      mode: captureMeta?.mode || "capture"
+    });
+  } catch {
+    return `pagesnap-${Date.now()}.png`;
+  }
 }
-async function updateFilenamePreview(){
+async function updateFilenamePreview() {
   const el = filenamePreviewEl();
-  if(!el) return;
+  if (!el) return;
   el.textContent = `Saves as: ${await buildFilename()}`;
 }
 async function downloadImage() {
@@ -1151,14 +1226,27 @@ function updateActionStates() {
   undoButton.disabled = historyStack.length <= 1;
   redoButton.disabled = redoStack.length === 0;
   clearButton.disabled = annotations.length === 0;
-  if(cropButton){ const canCrop = selectedIndex>=0 && (annotations[selectedIndex]?.type==="rectangle"||annotations[selectedIndex]?.type==="redact"); cropButton.disabled = !canCrop; cropButton.title = canCrop ? "Crop to selected rectangle/redaction" : "Select a rectangle/redaction first"; }
-  toolButtons.forEach(btn=> btn.setAttribute("aria-pressed", String(btn.dataset.tool===currentTool)));
+  if (cropButton) {
+    const canCrop =
+      selectedIndex >= 0 &&
+      (annotations[selectedIndex]?.type === "rectangle" ||
+        annotations[selectedIndex]?.type === "redact");
+    cropButton.disabled = !canCrop;
+    cropButton.title = canCrop
+      ? "Crop to selected rectangle/redaction"
+      : "Select a rectangle/redaction first";
+  }
+  toolButtons.forEach((btn) =>
+    btn.setAttribute("aria-pressed", String(btn.dataset.tool === currentTool))
+  );
   // Laptop/desktop: zoom limits feedback
-  if(zoomInButton) zoomInButton.disabled = zoom >= ZOOM_MAX - 0.001;
-  if(zoomOutButton) zoomOutButton.disabled = zoom <= ZOOM_MIN + 0.001;
-  if(fontSizeDec) fontSizeDec.disabled = activeFontSize <= FONT_MIN;
-  if(fontSizeInc) fontSizeInc.disabled = activeFontSize >= FONT_MAX;
-  if(fontSizeInput){ fontSizeInput.title = `Text size ${activeFontSize}px (${FONT_MIN}–${FONT_MAX})`; }
+  if (zoomInButton) zoomInButton.disabled = zoom >= ZOOM_MAX - 0.001;
+  if (zoomOutButton) zoomOutButton.disabled = zoom <= ZOOM_MIN + 0.001;
+  if (fontSizeDec) fontSizeDec.disabled = activeFontSize <= FONT_MIN;
+  if (fontSizeInc) fontSizeInc.disabled = activeFontSize >= FONT_MAX;
+  if (fontSizeInput) {
+    fontSizeInput.title = `Text size ${activeFontSize}px (${FONT_MIN}–${FONT_MAX})`;
+  }
 }
 
 // Read a font-size value (px) clamped to [FONT_MIN, FONT_MAX]; keeps the input
@@ -1188,9 +1276,12 @@ function fitToWidth() {
   const wrapStyle = getComputedStyle(canvasWrap);
   const areaStyle = getComputedStyle(canvasArea);
   const sideChrome =
-    parseFloat(wrapStyle.paddingLeft) + parseFloat(wrapStyle.paddingRight) +
-    parseFloat(wrapStyle.borderLeftWidth) + parseFloat(wrapStyle.borderRightWidth) +
-    parseFloat(areaStyle.paddingLeft) + parseFloat(areaStyle.paddingRight);
+    parseFloat(wrapStyle.paddingLeft) +
+    parseFloat(wrapStyle.paddingRight) +
+    parseFloat(wrapStyle.borderLeftWidth) +
+    parseFloat(wrapStyle.borderRightWidth) +
+    parseFloat(areaStyle.paddingLeft) +
+    parseFloat(areaStyle.paddingRight);
   const available = Math.max(1, canvasArea.clientWidth - sideChrome);
   const target = Math.min(available, captureImage.width);
   setZoom(Math.min(1, target / captureImage.width));
@@ -1205,7 +1296,9 @@ function setZoom(value) {
   zoomLabel.textContent = `${Math.round(zoom * 100)}%`;
   updateActionStates();
   // Keep canvas focus so laptop keyboard shortcuts keep working after zoom click
-  try{ canvas.focus({ preventScroll: true }); }catch{}
+  try {
+    canvas.focus({ preventScroll: true });
+  } catch {}
 }
 
 function startPan(event) {
@@ -1229,21 +1322,33 @@ function startPan(event) {
   canvasWrap.classList.add("panning");
 }
 
-function nudgeSelected(dx, dy){
+function nudgeSelected(dx, dy) {
   if (selectedIndex < 0) return false;
   const a = annotations[selectedIndex];
   invalidateRedactCache(a);
-  if (a.type === "arrow") { a.x1 += dx; a.y1 += dy; a.x2 += dx; a.y2 += dy; }
-  else { a.x += dx; a.y += dy; }
+  if (a.type === "arrow") {
+    a.x1 += dx;
+    a.y1 += dy;
+    a.x2 += dx;
+    a.y2 += dy;
+  } else {
+    a.x += dx;
+    a.y += dy;
+  }
   redraw();
   return true;
 }
-function commitNudgeGroup(){
-  if(!nudgeGrouping) return;
-  nudgeGrouping=false;
-  const changed = nudgeGroupStart && selectedIndex>=0 ? geometryChanged(annotations[selectedIndex], nudgeGroupStart) : true;
-  nudgeGroupStart=null;
-  if(changed){ commitHistory(); }
+function commitNudgeGroup() {
+  if (!nudgeGrouping) return;
+  nudgeGrouping = false;
+  const changed =
+    nudgeGroupStart && selectedIndex >= 0
+      ? geometryChanged(annotations[selectedIndex], nudgeGroupStart)
+      : true;
+  nudgeGroupStart = null;
+  if (changed) {
+    commitHistory();
+  }
 }
 function onKeyDown(event) {
   const activeTag = document.activeElement?.tagName || "";
@@ -1251,21 +1356,32 @@ function onKeyDown(event) {
     return; // typing in the text editor — browser handles its own keys
   }
 
-  if (event.key === "?" && !event.ctrlKey && !event.metaKey) { helpModal?.showModal(); event.preventDefault(); return; }
+  if (event.key === "?" && !event.ctrlKey && !event.metaKey) {
+    helpModal?.showModal();
+    event.preventDefault();
+    return;
+  }
 
   // Arrow nudge for selected annotation — grouped into one undo (Task 8)
-  if (selectedIndex >= 0 && ["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(event.key)) {
+  if (
+    selectedIndex >= 0 &&
+    ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)
+  ) {
     const step = event.shiftKey ? 10 : 1;
-    let dx=0, dy=0;
-    if(event.key==="ArrowUp") dy=-step;
-    if(event.key==="ArrowDown") dy=step;
-    if(event.key==="ArrowLeft") dx=-step;
-    if(event.key==="ArrowRight") dx=step;
-    if(!nudgeGrouping){ nudgeGrouping=true; nudgeGroupStart=snapshotGeometry(annotations[selectedIndex]); }
-    if(nudgeSelected(dx, dy)){
+    let dx = 0,
+      dy = 0;
+    if (event.key === "ArrowUp") dy = -step;
+    if (event.key === "ArrowDown") dy = step;
+    if (event.key === "ArrowLeft") dx = -step;
+    if (event.key === "ArrowRight") dx = step;
+    if (!nudgeGrouping) {
+      nudgeGrouping = true;
+      nudgeGroupStart = snapshotGeometry(annotations[selectedIndex]);
+    }
+    if (nudgeSelected(dx, dy)) {
       event.preventDefault();
       clearTimeout(nudgeTimer);
-      nudgeTimer=setTimeout(()=>commitNudgeGroup(), 400);
+      nudgeTimer = setTimeout(() => commitNudgeGroup(), 400);
       setStatus(`Nudged ${step}px`);
     }
     return;
@@ -1278,7 +1394,10 @@ function onKeyDown(event) {
     return;
   }
 
-  if (event.code === "Escape" && helpModal?.open) { helpModal.close(); return; }
+  if (event.code === "Escape" && helpModal?.open) {
+    helpModal.close();
+    return;
+  }
 
   if (event.key === "Delete") {
     deleteSelected();
@@ -1304,13 +1423,19 @@ function onKeyDown(event) {
   }
 
   // Task 6: single-key tool accelerators
-  const key=event.key.toLowerCase();
-  const accel={ r:"rectangle", a:"arrow", t:"text", s:"select", b:"blur", p:"pixel" };
-  if(accel[key] && !event.ctrlKey && !event.metaKey && !event.altKey){
-    event.preventDefault(); setActiveTool(accel[key]); return;
+  const key = event.key.toLowerCase();
+  const accel = { r: "rectangle", a: "arrow", t: "text", s: "select", b: "blur", p: "pixel" };
+  if (accel[key] && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    event.preventDefault();
+    setActiveTool(accel[key]);
+    return;
   }
+  // prettier-ignore
   if(key==="0" && !event.ctrlKey && !event.metaKey){
-    event.preventDefault(); fitToWidth(); setStatus("Fit to width"); return;
+    event.preventDefault();
+    fitToWidth();
+    setStatus("Fit to width");
+    return;
   }
 
   if (event.code !== "Space") {
@@ -1341,15 +1466,6 @@ function getCanvasPoint(event, rect = cachedRect) {
   return {
     x: (event.clientX - r.left) * scaleX,
     y: (event.clientY - r.top) * scaleY
-  };
-}
-
-function normalizeRect(from, to) {
-  return {
-    x: Math.min(from.x, to.x),
-    y: Math.min(from.y, to.y),
-    width: Math.abs(to.x - from.x),
-    height: Math.abs(to.y - from.y)
   };
 }
 

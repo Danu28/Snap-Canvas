@@ -5,7 +5,13 @@
   "type": "module",
   "license": "MIT",
   "author": "SnapCanvas Contributors",
-  "keywords": ["chrome-extension", "screenshot", "annotation", "capture", "mv3"],
+  "keywords": [
+    "chrome-extension",
+    "screenshot",
+    "annotation",
+    "capture",
+    "mv3"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/example/snap-canvas"
@@ -21,7 +27,9 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write \"**/*.{js,css,html,json,yml}\"",
-    "format:check": "prettier --check \"**/*.{js,css,html,json,yml}\""
+    "format:check": "prettier --check \"**/*.{js,css,html,json,yml}\"",
+    "check": "npm run lint && npx prettier --check \"**/*.{js,css,html,json,yml}\" && npm test",
+    "validate": "node --check background.js && node --check editor.js && node --check popup.js && npm test"
   },
   "devDependencies": {
     "eslint": "^9.0.0",

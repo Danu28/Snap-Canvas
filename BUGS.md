@@ -2,7 +2,6 @@
 
 > **Status 2026-09-12: All bugs below are FIXED and verified by `tests/bug-report.test.mjs` (8/8 pass).**
 > This file is kept as historical reference. Source of truth is now the tests + harness.
-> See `suggestion.html` for the ordered enhancement plan (tasks 1–12).
 
 Static review of the capture pipeline (`background.js`), the annotation editor
 (`editor.js` + `editor.html`/`editor.css`), the content scripts
@@ -48,5 +47,5 @@ Each bug was evidenced by `tests/bug-report.test.mjs` (the suite asserts the
 - `buildSteps` tile generation and `assertTabActive` tab-guard are correct
 - All five JS files pass `node --check`
 
-## Follow-ups (now in suggestion.html)
-P0: badge+lastError surfacing, IDB blob migration; P1: auto-save, sticky opt-out, crop-to-selection, accelerators, tile accelerate, burst-nudge grouping; P2: filename preview, dedupe, a11y polish. All implemented 2026-09-12.
+## Follow-ups (implemented 2026-09-12)
+P0: badge+lastError surfacing, IDB blob migration; P1: auto-save, sticky opt-out, crop-to-selection, accelerators, tile accelerate, burst-nudge grouping; P2: filename preview, dedupe, a11y polish. All implemented and verified by `tests/enhancements.test.mjs`.

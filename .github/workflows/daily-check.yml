@@ -21,6 +21,7 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: "20"
+          cache: "npm"
 
       - name: Validate manifest and required assets
         shell: bash
@@ -51,6 +52,10 @@ jobs:
             rm -f "/tmp/$(basename $f .js).mjs"
           done
 
+      - name: Install deps (cached)
+        shell: bash
+        run: npm ci --ignore-scripts || npm install
+
       - name: Run tests
         shell: bash
         run: npm test
@@ -72,3 +77,5 @@ jobs:
           else
             echo "No Prettier config — skipping"
           fi
+
+      # Speed target: validate job < 60s p95 (npm test ~0.2s, lint ~1s). Bottleneck was cold npm install; cache cuts 30s.

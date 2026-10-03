@@ -1,3 +1,16 @@
+# Windows reserved device names — Chrome will refuse to load an unpacked
+# extension if any file is named NUL/CON/AUX/PRN/COM1-9/LPT1-9 (case-insensitive).
+# The file `./nul` was accidentally created by a `2>nul` redirect typo
+# (bash `2>nul` creates a literal file; correct is `2>/dev/null` or `2> /dev/null`).
+nul
+NUL
+con
+CON
+aux
+AUX
+prn
+PRN
+
 .DS_Store
 Thumbs.db
 
